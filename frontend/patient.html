@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ประวัติผู้ป่วย — PharmaCare AI</title>
+    <meta name="description" content="แดชบอร์ดประวัติผู้ป่วย PharmaCare AI">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', 'Noto Sans Thai', sans-serif; background: #f8fafc; color: #1e293b; min-height: 100vh; }
+
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 3px; }
+
+        /* Navigation */
+        .top-nav {
+            background: rgba(255,255,255,0.9); backdrop-filter: blur(12px);
+            border-bottom: 1px solid #e2e8f0;
+            padding: 0.8rem 2rem;
+            display: flex; align-items: center; justify-content: space-between;
+            position: sticky; top: 0; z-index: 20;
+        }
+        .nav-left { display: flex; align-items: center; gap: 1rem; }
+        .back-btn {
+            display: flex; align-items: center; gap: 0.4rem;
+            padding: 0.4rem 0.8rem; border-radius: 8px; border: 1px solid #e2e8f0;
+            background: #fff; color: #64748b; text-decoration: none;
+            font-size: 0.8rem; transition: all 0.15s;
+        }
+        .back-btn:hover { background: #f1f5f9; color: #1e293b; }
+        .nav-title { font-size: 1rem; font-weight: 700; color: #1e293b; }
+        .nav-subtitle { font-size: 0.7rem; color: #94a3b8; }
+
+        /* Main Container */
+        .container { max-width: 960px; margin: 0 auto; padding: 1.5rem 1.5rem 3rem; }
+
+        /* Patient Header */
+        .patient-header {
+            background: linear-gradient(135deg, rgba(16,185,129,0.06), rgba(6,182,212,0.06));
+            border: 1px solid rgba(16,185,129,0.12);
+            border-radius: 20px;
+            padding: 1.75rem 2rem;
+            margin-bottom: 1.5rem;
+            display: flex; align-items: center; gap: 1.25rem;
+        }
+        .patient-avatar {
+            width: 64px; height: 64px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, #10b981, #06b6d4);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.8rem; color: #fff; font-weight: 700;
+            box-shadow: 0 8px 24px rgba(16,185,129,0.2);
+            flex-shrink: 0;
+        }
+        .patient-info { flex: 1; }
+        .patient-name { font-size: 1.5rem; font-weight: 700; color: #0f172a; margin-bottom: 0.25rem; }
+        .patient-meta { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+        .meta-item { font-size: 0.78rem; color: #64748b; display: flex; align-items: center; gap: 0.3rem; }
+        .meta-item svg { color: #94a3b8; }
+
+        /* Cards Grid */
+        .cards-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
+        @media (max-width: 768px) { .cards-grid { grid-template-columns: 1fr; } }
+
+        .card {
+            background: rgba(255,255,255,0.95); backdrop-filter: blur(8px);
+            border: 1px solid rgba(0,0,0,0.04);
+            border-radius: 16px; padding: 1.25rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+            transition: all 0.2s;
+        }
+        .card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
+        .card-title { font-size: 0.78rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.4rem; }
+        .card-full { grid-column: 1 / -1; }
+
+        /* Risk Badge */
+        .risk-badge {
+            display: inline-flex; align-items: center; gap: 0.35rem;
+            padding: 0.35rem 0.85rem; border-radius: 20px;
+            font-size: 0.78rem; font-weight: 600;
+        }
+        .risk-low { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
+        .risk-medium { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+        .risk-high { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+        .risk-critical { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; animation: pulse-risk 2s infinite; }
+        @keyframes pulse-risk { 0%,100%{ box-shadow: 0 0 0 0 rgba(239,68,68,0.3); } 50%{ box-shadow: 0 0 0 6px rgba(239,68,68,0); } }
+
+        /* Tag list */
+        .tag-list { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+        .tag {
+            padding: 0.3rem 0.7rem; border-radius: 20px;
+            font-size: 0.75rem; font-weight: 500;
+        }
+        .tag-condition { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+        .tag-med { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+        .tag-allergy { background: #fce7f3; color: #9d174d; border: 1px solid #fbcfe8; }
+
+        /* Timeline */
+        .timeline { position: relative; padding-left: 1.5rem; }
+        .timeline::before { content: ''; position: absolute; left: 0.45rem; top: 0.5rem; bottom: 0.5rem; width: 2px; background: #e2e8f0; }
+        .timeline-item { position: relative; padding-bottom: 1.25rem; }
+        .timeline-item:last-child { padding-bottom: 0; }
+        .timeline-dot {
+            position: absolute; left: -1.25rem; top: 0.3rem;
+            width: 12px; height: 12px; border-radius: 50%;
+            background: #10b981; border: 2px solid #fff;
+            box-shadow: 0 0 0 2px #10b981;
+        }
+        .timeline-date { font-size: 0.7rem; color: #94a3b8; font-weight: 500; margin-bottom: 0.2rem; }
+        .timeline-text { font-size: 0.85rem; color: #334155; line-height: 1.6; }
+
+        /* Summary text */
+        .summary-text { font-size: 0.88rem; color: #334155; line-height: 1.75; }
+
+        /* Recommendations */
+        .rec-list { list-style: none; padding: 0; }
+        .rec-item { display: flex; gap: 0.5rem; padding: 0.4rem 0; font-size: 0.85rem; color: #334155; line-height: 1.6; }
+        .rec-icon { color: #10b981; flex-shrink: 0; margin-top: 2px; }
+
+        /* Sessions list */
+        .session-link {
+            display: flex; align-items: center; gap: 0.75rem;
+            padding: 0.7rem 1rem; border-radius: 10px;
+            background: #f8fafc; border: 1px solid #f1f5f9;
+            margin-bottom: 0.5rem; text-decoration: none; color: inherit;
+            transition: all 0.15s;
+        }
+        .session-link:hover { background: #ecfdf5; border-color: #a7f3d0; transform: translateX(4px); }
+        .session-link-icon { color: #10b981; flex-shrink: 0; }
+        .session-link-title { font-size: 0.85rem; font-weight: 500; color: #334155; }
+        .session-link-meta { font-size: 0.7rem; color: #94a3b8; }
+
+        /* Generate button */
+        .generate-btn {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.65rem 1.25rem; border-radius: 12px; border: none;
+            background: linear-gradient(135deg, #10b981, #06b6d4);
+            color: #fff; font-size: 0.85rem; font-weight: 600;
+            font-family: inherit; cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 12px rgba(16,185,129,0.2);
+        }
+        .generate-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(16,185,129,0.3); }
+        .generate-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        .update-info { font-size: 0.72rem; color: #94a3b8; margin-top: 0.5rem; }
+
+        /* Loading */
+        .loading-bar {
+            display: none; align-items: center; gap: 0.75rem;
+            padding: 1rem 1.25rem; border-radius: 12px;
+            background: linear-gradient(135deg, rgba(16,185,129,0.05), rgba(6,182,212,0.05));
+            border: 1px solid rgba(16,185,129,0.1);
+        }
+        .loading-bar.show { display: flex; }
+        .loading-spinner {
+            width: 24px; height: 24px; border: 3px solid #e2e8f0;
+            border-top-color: #10b981; border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { font-size: 0.85rem; color: #64748b; }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center; padding: 3rem 2rem;
+            color: #94a3b8;
+        }
+        .empty-state .icon { font-size: 3rem; margin-bottom: 1rem; }
+        .empty-state p { font-size: 0.88rem; line-height: 1.7; max-width: 400px; margin: 0 auto; }
+
+        /* Risk factors list */
+        .risk-factors { margin-top: 0.5rem; }
+        .risk-factor {
+            display: flex; align-items: center; gap: 0.4rem;
+            font-size: 0.8rem; color: #475569; padding: 0.2rem 0;
+        }
+        .risk-factor-dot {
+            width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+        }
+        .risk-factor-dot.low { background: #10b981; }
+        .risk-factor-dot.medium { background: #f59e0b; }
+        .risk-factor-dot.high { background: #ef4444; }
+        .risk-factor-dot.critical { background: #991b1b; }
+
+        @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-in { animation: fadeSlideIn 0.4s ease-out; }
+
+        /* Print styles */
+        .exporting-pdf .card {
+            background: #ffffff !important;
+            backdrop-filter: none !important;
+            border: 1px solid #e2e8f0 !important;
+            box-shadow: none !important;
+            page-break-inside: avoid;
+            margin-bottom: 20px !important;
+        }
+        .exporting-pdf body {
+            background: #ffffff !important;
+        }
+        .exporting-pdf .patient-header {
+            background: #f8fafc !important;
+            border: 1px solid #e2e8f0 !important;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="top-nav">
+    <div class="nav-left">
+        <a href="/" class="back-btn">
+            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+            กลับแชท
+        </a>
+        <div>
+            <div class="nav-title">📋 ประวัติผู้ป่วย</div>
+            <div class="nav-subtitle">Patient Dashboard</div>
+        </div>
+    </div>
+    <a href="/patients" class="back-btn">
+        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        รายชื่อทั้งหมด
+    </a>
+</nav>
+
+<div class="container" id="mainContent">
+    <!-- Patient Header (filled by JS) -->
+    <div id="patientHeader"></div>
+
+    <!-- Summary Controls -->
+    <div class="card card-full" style="margin-bottom:1.5rem" id="summaryControls">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem">
+            <div>
+                <div class="card-title">🤖 AI สรุปประวัติผู้ป่วย</div>
+                <div class="update-info" id="summaryUpdateInfo">ยังไม่ได้สร้างสรุป</div>
+            </div>
+            <div style="display:flex;gap:0.5rem;align-items:center">
+                <button class="export-btn" id="btnPdf" onclick="exportPDF()" style="display:none; padding: 0.5rem 1rem; border-radius: 10px; border: 1px solid #fca5a5; background: #fff5f5; color: #ef4444; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; font-weight: 600; box-shadow: 0 2px 4px rgba(239,68,68,0.1);">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    โหลด PDF
+                </button>
+                <button class="export-btn" id="btnExcel" onclick="exportExcel()" style="display:none; padding: 0.5rem 1rem; border-radius: 10px; border: 1px solid #a7f3d0; background: #ecfdf5; color: #10b981; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; font-weight: 600; box-shadow: 0 2px 4px rgba(16,185,129,0.1);">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    โหลด Excel
+                </button>
+                <button class="generate-btn" id="generateBtn" onclick="generateSummary()">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                    <span id="generateBtnText">สร้างสรุป AI</span>
+                </button>
+            </div>
+        </div>
+        <div class="loading-bar" id="loadingBar">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">กำลังประมวลผล AI Summary... อาจใช้เวลาสักครู่</div>
+        </div>
+    </div>
+
+    <!-- Summary Content (hidden until generated) -->
+    <div id="summaryContent" style="display:none">
+        <!-- Risk Assessment -->
+        <div class="card card-full" style="margin-bottom:1rem" id="riskCard">
+        </div>
+
+        <!-- Cards Grid -->
+        <div class="cards-grid" id="cardsGrid">
+        </div>
+
+        <!-- Overall Summary -->
+        <div class="card card-full" id="overallCard" style="margin-bottom:1rem">
+        </div>
+
+        <!-- Timeline -->
+        <div class="card card-full" id="timelineCard" style="margin-bottom:1rem">
+        </div>
+
+        <!-- Recommendations -->
+        <div class="card card-full" id="recsCard" style="margin-bottom:1.5rem">
+        </div>
+    </div>
+
+    <!-- Sessions -->
+    <div class="card card-full" id="sessionsCard">
+        <div class="card-title">💬 ประวัติการสนทนา</div>
+        <div id="sessionsList"></div>
+    </div>
+</div>
+
+<script>
+const token = localStorage.getItem('token');
+if (!token) { window.location.href = '/login'; }
+const AUTH = { headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } };
+
+// Get patient name from URL
+const pathParts = decodeURIComponent(window.location.pathname).split('/');
+const patientName = pathParts[pathParts.length - 1] || pathParts[pathParts.length - 2];
+
+// Utility
+function esc(t) { const d = document.createElement('div'); d.textContent = t || ''; return d.innerHTML; }
+function fmtDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString('th-TH', {year:'numeric',month:'short',day:'numeric'}) + ' ' + d.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
+}
+function fmtDateShort(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString('th-TH', {year:'numeric',month:'short',day:'numeric'});
+}
+
+const riskLabels = { low: '🟢 ความเสี่ยงต่ำ', medium: '🟡 ความเสี่ยงปานกลาง', high: '🔴 ความเสี่ยงสูง', critical: '🚨 วิกฤต — ต้องส่งต่อ' };
+const riskClasses = { low: 'risk-low', medium: 'risk-medium', high: 'risk-high', critical: 'risk-critical' };
+
+let currentSummaryData = null;
+
+// Load initial data
+async function loadPatientData() {
+    try {
+        const r = await fetch(`/api/patients/${encodeURIComponent(patientName)}/summary`, { headers: AUTH.headers });
+        if (!r.ok) throw new Error('ไม่พบข้อมูลผู้ป่วย');
+        const data = await r.json();
+        renderHeader(data);
+        if (data.has_summary && data.summary) {
+            renderSummary(data.summary, data.summary_updated_at);
+        }
+    } catch(e) {
+        console.error(e);
+    }
+    loadSessions();
+}
+
+function renderHeader(data) {
+    const initial = (patientName || '?')[0].toUpperCase();
+    document.getElementById('patientHeader').innerHTML = `
+        <div class="patient-header fade-in">
+            <div class="patient-avatar">${esc(initial)}</div>
+            <div class="patient-info">
+                <div class="patient-name">${esc(patientName)}</div>
+                <div class="patient-meta">
+                    <span class="meta-item">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                        เริ่มปรึกษา: ${fmtDateShort(data.first_visit)}
+                    </span>
+                    <span class="meta-item">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        ล่าสุด: ${fmtDateShort(data.last_visit)}
+                    </span>
+                    <span class="meta-item">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                        ${data.session_count} ครั้ง
+                    </span>
+                </div>
+            </div>
+        </div>
+    `;
+    document.title = `${patientName} — ประวัติผู้ป่วย — PharmaCare AI`;
+}
+
+function renderSummary(summary, updatedAt) {
+    currentSummaryData = summary;
+    document.getElementById('summaryContent').style.display = 'block';
+    document.getElementById('summaryUpdateInfo').innerHTML = `อัปเดตล่าสุด: ${fmtDate(updatedAt)}`;
+    document.getElementById('generateBtnText').textContent = 'อัปเดตสรุป';
+    
+    // Show export buttons
+    document.getElementById('btnPdf').style.display = 'flex';
+    document.getElementById('btnExcel').style.display = 'flex';
+
+    // Data sufficient warning
+    const dataNote = !summary.data_sufficient ? '<div style="padding:0.6rem 0.8rem;border-radius:8px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:0.8rem;margin-bottom:1rem">⚠️ ข้อมูลยังไม่เพียงพอ — สรุปนี้อ้างอิงจากข้อมูลเบื้องต้นที่มีอยู่เท่านั้น</div>' : '';
+
+    // Risk Assessment
+    const risk = summary.risk_assessment || {};
+    const riskLevel = risk.level || 'low';
+    document.getElementById('riskCard').innerHTML = `
+        ${dataNote}
+        <div class="card-title">⚠️ การประเมินความเสี่ยง</div>
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem">
+            <span class="risk-badge ${riskClasses[riskLevel] || 'risk-low'}">${riskLabels[riskLevel] || riskLevel}</span>
+        </div>
+        <p style="font-size:0.85rem;color:#475569;line-height:1.6;margin-bottom:0.25rem">${esc(risk.description || '')}</p>
+        ${(risk.factors?.length) ? `<div class="risk-factors">${risk.factors.map(f => `<div class="risk-factor"><span class="risk-factor-dot ${riskLevel}"></span>${esc(f)}</div>`).join('')}</div>` : ''}
+    `;
+
+    // Conditions + Medications + Allergies
+    const condTags = (summary.conditions || []).map(c => `<span class="tag tag-condition">${esc(c)}</span>`).join('') || '<span style="color:#94a3b8;font-size:0.8rem">ไม่พบข้อมูล</span>';
+    const medTags = (summary.medications_given || []).map(m => `<span class="tag tag-med">${esc(m)}</span>`).join('') || '<span style="color:#94a3b8;font-size:0.8rem">ไม่พบข้อมูล</span>';
+    const allergyTags = (summary.allergies || []).length ? summary.allergies.map(a => `<span class="tag tag-allergy">${esc(a)}</span>`).join('') : '<span style="color:#94a3b8;font-size:0.8rem">ไม่มีประวัติแพ้ยา</span>';
+
+    document.getElementById('cardsGrid').innerHTML = `
+        <div class="card fade-in">
+            <div class="card-title">🩺 โรค/อาการที่พบ</div>
+            <div class="tag-list">${condTags}</div>
+        </div>
+        <div class="card fade-in">
+            <div class="card-title">💊 ยาที่แนะนำ/จ่ายแล้ว</div>
+            <div class="tag-list">${medTags}</div>
+        </div>
+        <div class="card fade-in">
+            <div class="card-title">🚫 ประวัติแพ้ยา</div>
+            <div class="tag-list">${allergyTags}</div>
+        </div>
+        <div class="card fade-in" style="display:flex;flex-direction:column;">
+            <div class="card-title">📊 สถิติ</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;flex:1;">
+                <div style="text-align:center;padding:0.5rem;border-radius:8px;background:#f8fafc">
+                    <div style="font-size:1.5rem;font-weight:700;color:#10b981">${(summary.conditions||[]).length}</div>
+                    <div style="font-size:0.68rem;color:#94a3b8">อาการ</div>
+                </div>
+                <div style="text-align:center;padding:0.5rem;border-radius:8px;background:#f8fafc">
+                    <div style="font-size:1.5rem;font-weight:700;color:#0891b2">${(summary.medications_given||[]).length}</div>
+                    <div style="font-size:0.68rem;color:#94a3b8">รายการยา</div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Overall Summary
+    document.getElementById('overallCard').innerHTML = `
+        <div class="card-title">📝 สรุปภาพรวม</div>
+        <p class="summary-text">${esc(summary.overall_summary || 'ไม่มีข้อมูล')}</p>
+    `;
+
+    // Timeline
+    const timeline = summary.timeline || [];
+    document.getElementById('timelineCard').innerHTML = `
+        <div class="card-title">📅 ลำดับเวลา</div>
+        ${timeline.length ? `<div class="timeline">${timeline.map(t => `
+            <div class="timeline-item fade-in">
+                <div class="timeline-dot"></div>
+                <div class="timeline-date">${esc(t.date)}</div>
+                <div class="timeline-text">${esc(t.summary)}</div>
+            </div>
+        `).join('')}</div>` : '<p style="color:#94a3b8;font-size:0.85rem">ไม่มีข้อมูลลำดับเวลา</p>'}
+    `;
+
+    // Recommendations
+    const recs = summary.recommendations || [];
+    document.getElementById('recsCard').innerHTML = `
+        <div class="card-title">💡 คำแนะนำการติดตาม</div>
+        ${recs.length ? `<ul class="rec-list">${recs.map(r => `
+            <li class="rec-item">
+                <span class="rec-icon">✅</span>
+                <span>${esc(r)}</span>
+            </li>
+        `).join('')}</ul>` : '<p style="color:#94a3b8;font-size:0.85rem">ไม่มีคำแนะนำ</p>'}
+    `;
+}
+
+async function loadSessions() {
+    try {
+        const r = await fetch(`/api/patients/${encodeURIComponent(patientName)}/sessions`, { headers: AUTH.headers });
+        if (!r.ok) {
+            document.getElementById('sessionsList').innerHTML = '<div class="empty-state"><div class="icon">💬</div><p>ยังไม่มีประวัติการสนทนา</p></div>';
+            return;
+        }
+        const sessions = await r.json();
+        document.getElementById('sessionsList').innerHTML = sessions.map(s => `
+            <a class="session-link" href="/" onclick="goToSession('${s.id}');return false;">
+                <svg class="session-link-icon" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                <div style="flex:1">
+                    <div class="session-link-title">${esc(s.title)}</div>
+                    <div class="session-link-meta">${fmtDate(s.created_at)} · ${s.message_count || 0} ข้อความ</div>
+                </div>
+                <svg width="14" height="14" fill="none" stroke="#94a3b8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            </a>
+        `).join('');
+    } catch(e) {
+        console.error(e);
+    }
+}
+
+function goToSession(sessionId) {
+    // Navigate to main chat and open this session
+    window.location.href = `/?session=${sessionId}`;
+}
+
+async function generateSummary() {
+    const btn = document.getElementById('generateBtn');
+    const loading = document.getElementById('loadingBar');
+    btn.disabled = true;
+    loading.classList.add('show');
+
+    try {
+        const r = await fetch(`/api/patients/${encodeURIComponent(patientName)}/summary`, {
+            method: 'POST',
+            headers: AUTH.headers,
+        });
+        if (!r.ok) {
+            const err = await r.json();
+            alert(err.detail || 'เกิดข้อผิดพลาด');
+            return;
+        }
+        const data = await r.json();
+        renderSummary(data.summary, data.summary_updated_at);
+    } catch(e) {
+        alert('เกิดข้อผิดพลาดในการสร้างสรุป: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        loading.classList.remove('show');
+    }
+}
+
+// Export PDF
+function exportPDF() {
+    const element = document.getElementById('mainContent');
+    
+    // Add print class for styling fixes
+    document.body.classList.add('exporting-pdf');
+    
+    const opt = {
+      margin:       0.4,
+      filename:     `PharmaCare_Summary_${patientName}.pdf`,
+      image:        { type: 'jpeg', quality: 1.0 },
+      html2canvas:  { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: 1024 },
+      jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' },
+      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+    };
+    
+    // Hide controls
+    document.getElementById('summaryControls').style.display = 'none';
+    const nav = document.querySelector('.top-nav');
+    if (nav) nav.style.display = 'none';
+    
+    html2pdf().set(opt).from(element).save().then(() => {
+        document.getElementById('summaryControls').style.display = 'block';
+        if (nav) nav.style.display = 'flex';
+        document.body.classList.remove('exporting-pdf');
+    });
+}
+
+// Export Excel
+function exportExcel() {
+    if (!currentSummaryData) return;
+    const wb = XLSX.utils.book_new();
+    
+    // Sheet 1: General
+    const ws1 = XLSX.utils.aoa_to_sheet([
+        ["หัวข้อ", "รายละเอียด"],
+        ["ชื่อผู้ป่วย", patientName],
+        ["ความเสี่ยง", currentSummaryData.risk_assessment?.level || 'N/A'],
+        ["รายละเอียดความเสี่ยง", currentSummaryData.risk_assessment?.description || ''],
+        ["ภาพรวม", currentSummaryData.overall_summary || '']
+    ]);
+    ws1['!cols'] = [{wch: 25}, {wch: 100}];
+    XLSX.utils.book_append_sheet(wb, ws1, "ข้อมูลทั่วไป");
+
+    // Sheet 2: Clinical Data
+    const listsData = [["โรค/อาการ", "ยาที่ได้รับ", "ประวัติแพ้ยา"]];
+    const maxLen = Math.max(
+        (currentSummaryData.conditions || []).length, 
+        (currentSummaryData.medications_given || []).length, 
+        (currentSummaryData.allergies || []).length
+    );
+    for(let i=0; i<maxLen; i++) {
+        listsData.push([
+            (currentSummaryData.conditions || [])[i] || '',
+            (currentSummaryData.medications_given || [])[i] || '',
+            (currentSummaryData.allergies || [])[i] || ''
+        ]);
+    }
+    const ws2 = XLSX.utils.aoa_to_sheet(listsData);
+    ws2['!cols'] = [{wch: 40}, {wch: 40}, {wch: 40}];
+    XLSX.utils.book_append_sheet(wb, ws2, "ข้อมูลการรักษา");
+
+    // Sheet 3: Timeline
+    const timelineData = [["วันที่", "รายละเอียด"]];
+    (currentSummaryData.timeline || []).forEach(t => {
+        timelineData.push([t.date, t.summary]);
+    });
+    const ws3 = XLSX.utils.aoa_to_sheet(timelineData);
+    ws3['!cols'] = [{wch: 20}, {wch: 80}];
+    XLSX.utils.book_append_sheet(wb, ws3, "ลำดับเวลา");
+
+    // Sheet 4: Recommendations
+    const recData = [["คำแนะนำ"]];
+    (currentSummaryData.recommendations || []).forEach(r => {
+        recData.push([r]);
+    });
+    const ws4 = XLSX.utils.aoa_to_sheet(recData);
+    ws4['!cols'] = [{wch: 120}];
+    XLSX.utils.book_append_sheet(wb, ws4, "คำแนะนำ");
+
+    XLSX.writeFile(wb, `PharmaCare_Summary_${patientName}.xlsx`);
+}
+
+// Init
+loadPatientData();
+</script>
+</body>
+</html>

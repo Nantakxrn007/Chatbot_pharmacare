@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+qdrant-client
+google-generativeai
+python-dotenv
+pypdf
+pydantic
+numpy
+rank_bm25

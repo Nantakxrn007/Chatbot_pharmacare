@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    container_name: pharmacare-ai
+    ports:
+      - "8899:8000"
+    volumes:
+      - ./rag/qdrant_db:/app/rag/qdrant_db
+      - ./rag/data:/app/rag/data
+      - ./frontend:/app/frontend
+      - ./backend:/app/backend
+      - ./.env:/app/.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONIOENCODING=utf-8
+    restart: unless-stopped

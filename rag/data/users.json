@@ -1,0 +1,38 @@
+[
+  {
+    "username": "admin",
+    "password_hash": "f79f3198d3a9b5f4e80caba09473af89:c938a735e56a8f5ea801ee9110ea1526890a80d9804ff3d38a54555edaaec2ec",
+    "display_name": "ผู้ดูแลระบบ",
+    "role": "admin"
+  },
+  {
+    "username": "pharmacist1",
+    "password_hash": "63ccf1ec156f94f558c44407df1d3515:04f68966d1f0ab9f7e23b628afe0e0683fd4fb063cdff07674664ed9f023ff42",
+    "display_name": "เภสัชกรคนที่ 1",
+    "role": "user"
+  },
+  {
+    "username": "pharmacist2",
+    "password_hash": "0c92d0210c4c6a8952d5333259a47666:15925c11ed134932aa8dd2e6e91dbf5c0c42138e19e31239ddd5131084ce05c1",
+    "display_name": "เภสัชกรคนที่ 2",
+    "role": "user"
+  },
+  {
+    "username": "pharmacist3",
+    "password_hash": "da2fc05f0e7c63fee36fccb0ca1d5340:ca2437a5ead101879dc49674bdf4ee2bf030384f655f58131bb21caf9281d8ca",
+    "display_name": "เภสัชกรคนที่ 3",
+    "role": "user"
+  },
+  {
+    "username": "pharmacist4",
+    "password_hash": "f9407fadb75ed93874b79816dc6ec31c:c134189e09c3518c06263bbd5489a5c3dac9d96143e21f037909a8d0cfeb3ff7",
+    "display_name": "เภสัชกรคนที่ 4",
+    "role": "user"
+  },
+  {
+    "username": "pharmacist5",
+    "password_hash": "25525c920730f47c2d758028115f7654:ebbb0ee9daf574d2daf50d8cc3bd12af38c9785b370c1f081eb9b1e23da78744",
+    "display_name": "เภสัชกรคนที่ 5",
+    "role": "user"
+  }
+]
