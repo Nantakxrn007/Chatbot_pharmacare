@@ -125,7 +125,7 @@ function renderSessionList(list) {
     el.innerHTML = list.map(s => {
         let dateStr = '';
         if (s.updated_at) {
-            try { dateStr = new Date(s.updated_at).toLocaleString('th-TH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch(e){}
+            try { dateStr = new Date(s.updated_at).toLocaleString('th-TH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch (e) { }
         }
         return `
 <div class="session-item flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all duration-200 border border-transparent ${s.id === currentSessionId ? 'bg-emerald-50 border-emerald-200 shadow-sm' : 'hover:bg-gray-50 hover:border-gray-200'}" onclick="switchSession('${s.id}')">
@@ -156,12 +156,12 @@ async function switchSession(id) {
         currentPatientName = s.patient_name || s.title;
         let dateStr = '';
         if (s.updated_at) {
-            try { dateStr = new Date(s.updated_at).toLocaleString('th-TH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch(e){}
+            try { dateStr = new Date(s.updated_at).toLocaleString('th-TH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch (e) { }
         }
         document.getElementById('chatTitle').textContent = currentPatientName;
         document.getElementById('chatSubtitle').textContent = `ผู้ป่วย: ${currentPatientName}` + (dateStr ? ` | อัปเดตล่าสุด: ${dateStr}` : '');
         document.getElementById('patientActions').style.display = 'flex'; // Show context buttons
-        
+
         updateDashboardLink();
         clearChat();
         currentPromptTokens = 0;
@@ -175,8 +175,8 @@ async function switchSession(id) {
             });
             scrollToBottom();
             document.getElementById('suggestedQuestions').style.display = 'flex';
-        } else { 
-            showWelcome(true); 
+        } else {
+            showWelcome(true);
             document.getElementById('suggestedQuestions').style.display = 'none';
         }
         loadSessions();
@@ -250,13 +250,13 @@ async function sendMessage() {
                     const d = JSON.parse(line.trim().slice(6));
                     if (d.type === 'session') currentSessionId = d.session_id;
                     else if (d.type === 'chunk') { full += d.content; contentDiv.innerHTML = renderMd(full); scrollToBottom(); }
-                    else if (d.type === 'done') { 
-                        updateSources(msgId, d.sources); 
+                    else if (d.type === 'done') {
+                        updateSources(msgId, d.sources);
                         if (d.usage) {
                             currentPromptTokens += (d.usage.prompt_tokens || 0);
                             currentCompletionTokens += (d.usage.completion_tokens || 0);
                         }
-                        loadSessions(); 
+                        loadSessions();
                         document.getElementById('suggestedQuestions').style.display = 'flex';
                     }
                     else if (d.type === 'error') { contentDiv.innerHTML += `<p style="color:#ef4444;margin-top:0.5rem">${esc(d.content)}</p>`; }
@@ -321,13 +321,13 @@ async function editLastMessage() {
                 try {
                     const d = JSON.parse(line.trim().slice(6));
                     if (d.type === 'chunk') { full += d.content; contentDiv.innerHTML = renderMd(full); scrollToBottom(); }
-                    else if (d.type === 'done') { 
-                        updateSources(msgId, d.sources); 
+                    else if (d.type === 'done') {
+                        updateSources(msgId, d.sources);
                         if (d.usage) {
                             currentPromptTokens += (d.usage.prompt_tokens || 0);
                             currentCompletionTokens += (d.usage.completion_tokens || 0);
                         }
-                        loadSessions(); 
+                        loadSessions();
                     }
                 } catch (e) { }
             }
@@ -361,13 +361,13 @@ async function regenerate() {
                 try {
                     const d = JSON.parse(line.trim().slice(6));
                     if (d.type === 'chunk') { full += d.content; contentDiv.innerHTML = renderMd(full); scrollToBottom(); }
-                    else if (d.type === 'done') { 
-                        updateSources(msgId, d.sources); 
+                    else if (d.type === 'done') {
+                        updateSources(msgId, d.sources);
                         if (d.usage) {
                             currentPromptTokens += (d.usage.prompt_tokens || 0);
                             currentCompletionTokens += (d.usage.completion_tokens || 0);
                         }
-                        loadSessions(); 
+                        loadSessions();
                     }
                 } catch (e) { }
             }
@@ -544,7 +544,7 @@ function closeTokenSummaryModal() {
 // ═══ Global Token Modal ═══
 async function openGlobalTokenModal() {
     document.getElementById('globalTokenModal').classList.add('show');
-    
+
     // Set default month to current month if not set
     const monthInput = document.getElementById('gtMonthFilter');
     if (!monthInput.value) {
@@ -553,7 +553,7 @@ async function openGlobalTokenModal() {
         const month = String(now.getMonth() + 1).padStart(2, '0');
         monthInput.value = `${year}-${month}`;
     }
-    
+
     await loadGlobalTokens(monthInput.value);
 }
 
@@ -561,24 +561,24 @@ async function loadGlobalTokens(month) {
     document.getElementById('gtTotalTokens').textContent = 'กำลังโหลด...';
     document.getElementById('gtTotalCost').textContent = '฿0.0000';
     document.getElementById('gtTableBody').innerHTML = '<tr><td colspan="3" class="px-4 py-6 text-center text-gray-400">กำลังโหลดข้อมูล...</td></tr>';
-    
+
     try {
         const url = month ? `/api/tokens/summary?month=${encodeURIComponent(month)}` : '/api/tokens/summary';
         const r = await fetch(url, { headers: AUTH.headers });
         const data = await r.json();
-        
+
         const totalTokens = data.total_prompt + data.total_completion;
         const totalCostThb = ((data.total_prompt / 1000000 * 0.25) + (data.total_completion / 1000000 * 1.50)) * 35;
-        
+
         document.getElementById('gtTotalTokens').textContent = totalTokens.toLocaleString();
         document.getElementById('gtTotalCost').textContent = '฿' + totalCostThb.toFixed(4);
-        
+
         const tbody = document.getElementById('gtTableBody');
         if (!data.sessions || data.sessions.length === 0) {
             tbody.innerHTML = '<tr><td colspan="3" class="px-4 py-6 text-center text-gray-400">ยังไม่มีข้อมูลการใช้งานในเดือนนี้</td></tr>';
             return;
         }
-        
+
         tbody.innerHTML = data.sessions.map(s => {
             const rowTokens = (s.total_prompt || 0) + (s.total_completion || 0);
             const rowCost = (((s.total_prompt || 0) / 1000000 * 0.25) + ((s.total_completion || 0) / 1000000 * 1.50)) * 35;
@@ -589,7 +589,7 @@ async function loadGlobalTokens(month) {
                 <td class="px-4 py-3 text-right text-gray-600">฿${rowCost.toFixed(4)}</td>
             </tr>`;
         }).join('');
-        
+
     } catch (e) {
         document.getElementById('gtTableBody').innerHTML = `<tr><td colspan="3" class="px-4 py-6 text-center text-red-500">เกิดข้อผิดพลาดในการโหลดข้อมูล</td></tr>`;
     }
@@ -644,14 +644,14 @@ function renderMd(text) {
             let source = content;
             let page = '';
             let type = 'internal';
-            
+
             if (content.includes('ความรู้ทั่วไป') || content.includes('อ้างอิงจาก')) {
                 type = 'external';
                 let extMatch = content.match(/อ้างอิงจาก\s*(.*)/);
                 if (extMatch) source = extMatch[1].trim();
                 return `<span class="inline-source-tag" onclick="openPDF('${esc(source)}', '', 'external')">🌐 ${esc(source)}</span>`;
             }
-            
+
             // Extract page if present
             let pageMatch = content.match(/(?:,\s*(?:Page|หน้า)?\s*:?\s*|\s*p\.?\s*)(\d+)/i);
             if (pageMatch) {
@@ -660,8 +660,8 @@ function renderMd(text) {
                 // remove trailing comma if left behind
                 source = source.replace(/,$/, '').trim();
             }
-            
-            return `<span class="inline-source-tag" onclick="openPDF('${esc(source)}', '${page}', 'internal')">📄 ${esc(source)}${page ? ' p.'+page : ''}</span>`;
+
+            return `<span class="inline-source-tag" onclick="openPDF('${esc(source)}', '${page}', 'internal')">📄 ${esc(source)}${page ? ' p.' + page : ''}</span>`;
         });
 
         // Configure marked to use breaks for newlines
@@ -675,10 +675,10 @@ function renderMd(text) {
     }
 }
 
-function scrollToBottom() { const c = document.getElementById('chatMessages'); if(c) requestAnimationFrame(() => c.scrollTop = c.scrollHeight); }
+function scrollToBottom() { const c = document.getElementById('chatMessages'); if (c) requestAnimationFrame(() => c.scrollTop = c.scrollHeight); }
 function handleKeyDown(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }
 function autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; updateSendBtn(); }
-function updateSendBtn() { const b = document.getElementById('sendBtn'), i = document.getElementById('chatInput'); if(b && i) b.disabled = !i.value.trim() || isLoading; }
+function updateSendBtn() { const b = document.getElementById('sendBtn'), i = document.getElementById('chatInput'); if (b && i) b.disabled = !i.value.trim() || isLoading; }
 function toggleSidebar() {
     if (window.innerWidth <= 768) {
         document.getElementById('sidebar').classList.toggle('open');
@@ -699,7 +699,7 @@ document.addEventListener('keydown', e => {
 document.addEventListener('DOMContentLoaded', () => {
     const chatInput = document.getElementById('chatInput');
     if (chatInput) chatInput.addEventListener('input', updateSendBtn);
-    
+
     if (document.getElementById('sessionList')) {
         loadSessions().then(() => {
             const urlParams = new URLSearchParams(window.location.search);
@@ -711,4 +711,3 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
-

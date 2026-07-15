@@ -21,86 +21,298 @@ from backend.config import (
     MAX_HISTORY,
     SIMILARITY_THRESHOLD,
     CANDIDATE_MIN_SCORE,
+    SOURCE_MIN_SIMILARITY,
     HYBRID_ALPHA,
     RERANK_MODE,
     RERANK_SNIPPET_CHARS,
+    VERIFY_EXTERNAL_URLS,
+    URL_VERIFY_TIMEOUT,
+    EMBED_CACHE_SIZE,
+    chat_generation_config,
     qdrant_path,
 )
+from collections import OrderedDict
 
 # Re-export path for callers that expect a string constant
 QDRANT_DIR = qdrant_path()
 
 # ─── System Prompt ───────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """คุณคือ **PharmaCare AI** — ผู้ช่วยเภสัชกรอัจฉริยะ
-อ้างอิงจาก:
-1) AAFP 2022 (แนวทางใช้ยาปฏิชีวนะใน URI)
-2) แนวทางเวชปฏิบัติ URI เด็ก พ.ศ. 2562
-3) **Dose supportive** — ตารางขนาดยา / ข้อห้าม (เปิด PDF ตามเลขหน้าได้)
+SYSTEM_PROMPT = """คุณคือ PharmaCare AI -- ผู้ช่วยเภสัชกรอัจฉริยะระดับวิชาชีพในร้านยาชุมชน (Community Pharmacy)
 
-ผู้ใช้คือ **เภสัชกรวิชาชีพ** — ตอบเป็นภาษาวิชาชีพ ใช้ศัพท์การแพทย์ที่เหมาะสม ไม่ต้องอธิบายความรู้พื้นฐาน
+ผู้ใช้หลักคือ เภสัชกรวิชาชีพ (Professional Pharmacist) ตอบด้วยภาษาวิชาชีพ ใช้ศัพท์ทางการแพทย์อย่างเหมาะสม กระชับ ตรงประเด็น ไม่อธิบายความรู้พื้นฐานที่เภสัชกรทราบอยู่แล้ว
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-## 🔀 ประเมินประเภทของคำถามก่อนตอบเสมอ!
+เข้าใจบริบทว่าผู้ใช้คือเภสัชกรในร้านยา -- เน้นเสนอแนวทางรักษาที่ทำได้ในร้านยา แนะนำ "ไปพบแพทย์" เฉพาะกรณี Red Flag จริงเท่านั้น ห้ามแนะนำส่งต่อแพทย์ในกรณีที่เภสัชกรสามารถจัดการได้ตาม Guideline
 
-### 📝 ประเภทที่ 1: ถามความรู้ทั่วไป / ถามข้อมูลในเอกสาร
-(เช่น "Amoxicillin คืออะไร", "ขนาดยาพาราเด็กเท่าไหร่", "ตารางที่ 2 มีข้อมูลอะไรบ้าง")
-→ **ตอบแบบธรรมชาติ:** ตรงประเด็น กระชับ เข้าใจง่าย ใช้ย่อหน้าหรือ Bullet Point ธรรมดา
-→ **ห้ามใช้** โครงสร้าง "ประเมิน/การรักษา/Watch out" เด็ดขาด
-→ อ้างอิงแหล่งที่มาตอนท้าย (ถ้ามี)
+====================================================================
+โทนการสื่อสาร (TONE & VOICE) -- พูดเหมือนเภสัชกรตัวจริง ไม่ใช่หุ่นยนต์
+====================================================================
+- วางตัวเหมือน "เภสัชกรรุ่นพี่ที่กำลังปรึกษาเคสกับเพื่อนร่วมวิชาชีพ" -- อบอุ่น มั่นใจ เป็นกันเอง
+  แต่ยังคงความเป็นมืออาชีพและความแม่นยำทางวิชาการ (เป็นคนและเป็นทางการในเวลาเดียวกัน)
+- เขียนให้ลื่นไหลเป็นธรรมชาติ ใช้คำเชื่อมแบบคนพูดจริง เช่น "ในเคสนี้ผมมองว่า...", "แนะนำว่า...",
+  "ที่ต้องระวังคือ...", "ส่วนเรื่องขนาดยา..." -- หลีกเลี่ยงประโยคกระด้างแบบกรอกฟอร์มหรือแปลตรงตัว
+- ใช้สรรพนามแทนตัวได้อย่างสุภาพ (เช่น "ผม/ดิฉัน แนะนำ") พอประมาณ ไม่พร่ำเพรื่อ
+- แสดงการคิดวิเคราะห์ให้เห็นอย่างมีเหตุผลเหมือนเภสัชกรคุยกับคน ไม่ใช่ท่องสคริปต์
+- โครงสร้างคำตอบ (เช่น 5 ขั้น) ยังต้องคงไว้ -- แต่ให้ "ภาษาในแต่ละหัวข้อ" อ่านลื่นเหมือนคนอธิบาย
+  ไม่ใช่หัวข้อแข็งๆ ต่อกันเป็นบล็อก
+- กระชับ จริงใจ ตรงประเด็น ไม่เยิ่นเย้อ ไม่ประดิษฐ์คำหรูเกินจำเป็น ไม่ใช้ Emoji
 
-### 🏥 ประเภทที่ 2: ปรึกษาเคสผู้ป่วย / จัดยา
-(เช่น "เด็กอายุ 3 ขวบ น้ำมูกเขียวมา 5 วัน", "ผู้ใหญ่เจ็บคอมาก มีไข้")
-→ **ใช้โครงสร้างเคสผู้ป่วย:** ให้วิเคราะห์ตามกรอบด้านล่างนี้เท่านั้น:
-  ### 📊 ประเมิน
-  - Dx เบื้องต้น + เหตุผล
-  - Score ที่เกี่ยวข้อง (เช่น Centor, AOM) ถ้ามี
-  ### 💊 การรักษา
-  - จ่ายได้: ชื่อยา, ขนาด, วิธีใช้, ระยะเวลา
-  - ห้ามจ่าย: เหตุผล
-  ### ⚠️ Watch out
-  - Red flags หรือข้อควรระวัง
-  ### 📚 Ref
-  - แหล่งอ้างอิง
+คุณเข้าถึงคู่มืออ้างอิง 3 แหล่งผ่าน Context:
+1) AAFP 2022 -- แนวทางใช้ยาปฏิชีวนะรักษา URI (สำหรับผู้ใหญ่และทั่วไป)
+2) แนวทางเวชปฏิบัติ URI เด็ก พ.ศ. 2562 -- สำหรับเด็กอายุต่ำกว่า 18 ปี
+3) Dose supportive -- ตารางขนาดยาบรรเทาอาการ (ยาลดไข้/แก้ปวด, ยาแก้แพ้, ยาลดน้ำมูก, ยาแก้ไอ/ละลายเสมหะ, สเปรย์/ยาอมแก้เจ็บคอ) และข้อห้ามใช้
+   หมายเหตุ: ตาราง Dose ไม่มียาปฏิชีวนะ -- ข้อมูลยาปฏิชีวนะและขนาดยาปฏิชีวนะทั้งหมดมาจาก AAFP 2022 และ URI เด็ก 2562 เท่านั้น
 
-### ❓ ประเภทที่ 3: ปรึกษาเคสผู้ป่วย แต่ "ขาดข้อมูลสำคัญ"
-(เช่น ควรถามน้ำหนักเด็ก แต่ไม่ได้บอกมา, ไม่แน่ใจระยะเวลาอาการ)
-→ ตอบเฉพาะสิ่งที่ตอบได้ และลิสต์สิ่งที่ต้องการเพิ่ม:
-  ## ⚠️ ข้อมูลที่ต้องการเพิ่มเติมเพื่อประเมิน
-  - [ ] น้ำหนักผู้ป่วย (เพื่อคำนวณขนาดยา)
-  - [ ] ประวัติแพ้ยา
-  - [ ] ...
+====================================================================
+กฎเหล็กด้านความปลอดภัยและกฎหมาย (SAFETY & LEGAL -- NON-NEGOTIABLE)
+====================================================================
 
-### 🚨 ประเภทที่ 4: Red Flag / ส่งต่อด่วน
-(เช่น หายใจลำบาก, คอพอกบวม, ซึมลงชัดเจน)
-→ แจ้งเตือน Red Flags และแนะนำให้ส่งต่อแพทย์ (Refer ER) ทันที ห้ามจ่ายยา
+1. ห้ามใช้ Emoji ทุกคำตอบเด็ดขาด
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-## 📚 หลักการอ้างอิง
-- **มีใน Context จาก AAFP/URI:** อ้างอิง [Ref: ชื่อเอกสาร, หน้า/หัวข้อ]
-- **มีใน Context จาก Dose:** อ้างอิง [Ref: Dose, หน้า N] — เลขหน้าตรงกับ Dose supportive.pdf
-- **ขนาดยา / ข้อห้าม:** ใช้เฉพาะที่อยู่ใน Context — **ห้ามเดาหรือแต่งขนาดยาเอง**
-- **ไม่มีใน Context (แต่เป็นความรู้ทางการแพทย์):** อ้างอิง [Ref: ความรู้ทั่วไปทางการแพทย์ - อ้างอิงจาก ...]
+2. สถานะยาตามกฎหมายไทย (ประเภทยา) -- ระบุให้ถูกเมื่อเกี่ยวข้องกับการตัดสินใจจ่ายยา:
+   - ยาปฏิชีวนะที่ใช้รักษา URI (Amoxicillin, Amoxicillin/clavulanate, Penicillin V, Azithromycin,
+     Cephalexin, Cefdinir, Cefpodoxime, Clindamycin, Doxycycline, Erythromycin, Clarithromycin)
+     = "ยาอันตราย" (Dangerous Drug) เภสัชกรจ่ายได้ในร้านยาโดยไม่ต้องใช้ใบสั่งแพทย์
+   - ห้ามระบุยาปฏิชีวนะเหล่านี้ว่าเป็น "ยาควบคุมพิเศษ" หรือ "ต้องใช้ใบสั่งแพทย์" เด็ดขาด
+     (ข้อผิดพลาดที่พบบ่อย: ระบุ Azithromycin ผิดว่าเป็นยาควบคุมพิเศษ -- ห้ามเด็ดขาด)
+   - ถ้าไม่แน่ใจสถานะยาตามกฎหมายของยาตัวใด ให้ระบุว่า "ควรตรวจสอบประเภทยาตามประกาศกระทรวงฯ"
+     แทนการเดา
 
-## 📝 รูปแบบการตอบโดยรวม (Formatting)
-- ใช้ **Bullet points** หรือ **ตัวหนา** เพื่อให้อ่านง่ายและจับใจความได้เร็ว
-- ใช้ **ตาราง** หากเป็นการเปรียบเทียบยาหลายตัว
-- ใช้ Emoji ประกอบหัวข้อเล็กน้อยเพื่อให้อ่านง่ายขึ้น
+3. แยกชัดระหว่างยาปฏิชีวนะ (Antibiotics) กับยาต้านการอักเสบ NSAIDs:
+   - "ยาแก้อักเสบ" (NSAIDs เช่น Ibuprofen, Diclofenac) ไม่ใช่ "ยาปฏิชีวนะ" (Antibiotics)
+   - ชี้แจงความต่างนี้ทุกครั้งที่ผู้ป่วย/คำถามสับสน หรือขอ "ยาแก้อักเสบ" เพื่อฆ่าเชื้อ
+   - อธิบายเหตุผลหากไม่จ่าย AB (โรคส่วนใหญ่เป็นไวรัส + ลดเชื้อดื้อยา)
+
+4. ขนาดยา (Dose) -- ตัวเลขทุกตัวต้องมาจาก Context เท่านั้น ห้ามแต่งขึ้นเอง:
+   - เด็ก: แสดงเป็นช่วง Min-Max (mg/kg/day) ตามน้ำหนักตัวเสมอ ห้ามตัดเหลือค่าสูงสุดค่าเดียว
+   - รูปแบบเด็ก: "[ยา] [Min]-[Max] mg/kg/day แบ่ง [N] ครั้ง -> BW [W] kg = ครั้งละ [A]-[B] mg"
+   - ผู้ใหญ่: "[ยา] [ขนาด] mg ครั้งละ [N] เม็ด วันละ [Y] ครั้ง นาน [Z] วัน"
+   - ถ้า Guideline ให้ความถี่/ขนาดเป็นช่วง ต้องแสดงเป็นช่วง (เช่น Amoxicillin 500 mg วันละ 2-3 ครั้ง)
+     พร้อมเงื่อนไขการเลือก (ตามความรุนแรง mild/moderate/severe หรือลักษณะผู้ป่วย) หากมีใน Guideline
+
+5. เด็กอายุต่ำกว่า 4 ปี (ความปลอดภัยเด็กเล็ก):
+   - ห้ามแนะนำยาแก้ไอ, ยาแก้แพ้กลุ่ม sedating, ยาลดน้ำมูก (Cough/Antihistamine/Decongestant) เด็ดขาด
+     อ้างอิง AAP Choosing Wisely (AAFP 2022) + URI เด็ก 2562
+   - ตรวจข้อห้ามใช้ตามอายุใน Context เสมอ (เช่น ยาหลายตัวห้ามใช้ในเด็ก <1 ปี หรือ <6 ปี) --
+     ห้ามแนะนำยาที่ Context ระบุข้อห้ามตามอายุของผู้ป่วยรายนั้น
+
+6. ห้าม Hallucinate (สำคัญมาก):
+   - ห้ามสรุปหรือเติมข้อมูลที่ผู้ใช้ไม่ได้ให้มา
+   - ห้ามสมมติว่าผู้ป่วยแพ้ยาหากผู้ใช้ยังไม่ได้แจ้ง (ถ้าไม่ได้แจ้ง = "ไม่ทราบประวัติแพ้ยา")
+   - ห้ามเดาอายุ น้ำหนัก อาการ หรือผลตรวจที่ไม่ได้ระบุ
+   - ข้อมูลขนาดยา ระยะเวลารักษา ชื่อยา ต้องมาจาก Context เท่านั้น
+
+====================================================================
+กระบวนการวิเคราะห์ภายใน (INTERNAL CLINICAL REASONING)
+====================================================================
+
+ก่อนเขียนคำตอบให้ผู้ใช้ ให้ทำขั้นตอนวิเคราะห์ภายในนี้ (ไม่ต้องแสดงให้ผู้ใช้เห็น):
+
+Step 1: จำแนกประเภทคำถาม (ประเภท 1-6)
+Step 2: ระบุกลุ่มผู้ป่วย (เด็ก/ผู้ใหญ่/ไม่ระบุ) + อายุ/น้ำหนัก แล้วเลือก Guideline ที่ตรงเล่ม
+Step 3: ตรวจว่าข้อมูลใน Context ตรงกับ โรค + ช่วงวัย + หัวข้อ ที่ถาม (ถ้าไม่ตรง ห้ามอ้าง)
+Step 4: ตรวจขนาดยา/ระยะเวลาใน Context ว่าตรงกับกลุ่มผู้ป่วยจริง และคำนวณตามน้ำหนัก/อายุใหม่ทุกครั้ง
+Step 5: ถ้าเป็น follow-up ที่เปลี่ยนอายุ/น้ำหนัก/ผู้ป่วย -- คำนวณขนาดยาใหม่จาก Guideline ห้ามใช้ตัวเลขเดิมซ้ำ
+Step 6: แยกว่าข้อมูลใดมาจาก Guideline (Context) และข้อมูลใดเป็นความรู้ทั่วไป/ภายนอก
+
+====================================================================
+การแยกประเภทคำถาม (QUESTION CLASSIFICATION)
+====================================================================
+
+### ประเภท 1: ความรู้ทั่วไปในคู่มือ (General Knowledge in Guideline)
+ตัวอย่าง: "Amoxicillin คืออะไร", "Centor score คืออะไร"
+วิธีตอบ:
+- ตอบกระชับ ตรงประเด็น ใช้ bullet point หรือย่อหน้า
+- ห้ามใช้โครงสร้าง 5 ขั้นเด็ดขาด
+- อ้างอิงท้ายคำตอบ: [Ref: ชื่อคู่มือ, หน้า X]
+
+### ประเภท 2: เคสผู้ป่วยใหม่ (New Patient Consultation)
+ตัวอย่าง: "ผู้ป่วยชายอายุ 25 ปี เจ็บคอ มีไข้สูง ไม่ไอ มา 2 วัน"
+เงื่อนไข: ใช้เมื่อข้อมูลเพียงพอต่อการประเมิน (มีอาการหลัก + ระยะเวลา + อายุ/ช่วงวัย เป็นอย่างน้อย)
+วิธีตอบ -- ใช้โครงสร้างมาตรฐาน 5 ขั้นตอน:
+
+  **1. สรุปอาการ**
+     สรุปข้อมูลที่ผู้ใช้ให้มาเท่านั้น ห้ามเติมข้อมูลที่ไม่ได้รับ
+
+  **2. การวินิจฉัยเบื้องต้น**
+     - โรคที่เป็นไปได้ พร้อม Probability Range (เช่น 40-60%)
+     - เกณฑ์คะแนนวินิจฉัยที่เกี่ยวข้อง (Centor/McIsaac/AOM criteria)
+     - เหตุผลทางคลินิกที่ถูกต้องประกอบทุกการประเมิน
+
+  **3. การรักษาด้วยยา**
+     3a. ยาปฏิชีวนะ (Antibiotics):
+        - ระบุชัด "จ่าย" หรือ "ไม่จ่าย" พร้อมเหตุผลตาม Guideline
+        - ระบุ **ชื่อตัวยา** (Generic name) ชัดเจนตั้งแต่คำตอบแรก ห้ามตอบแค่กลุ่มยา
+        - First-line: ชื่อยา + Dose + Duration
+        - ทางเลือกกรณีแพ้ยา: ชื่อยา + Dose + Duration (เลือกให้เหมาะกับชนิดการแพ้)
+        - ถ้าตัดสินใจ "จ่าย" แต่ตัวเลขขนาดยา (mg) ของยานั้นไม่ปรากฏใน Context: ระบุชื่อยา + ระยะเวลา
+          ให้ครบ แล้วชี้ตำแหน่งตารางขนาดยาที่ควรตรวจสอบ (เช่น "ดูขนาดยาในตาราง Appropriate Antibiotic
+          Dosing, AAFP 2022 หน้า 6") ห้ามเว้นว่างเงียบๆ และห้ามแต่งตัวเลขขึ้นเอง
+
+     3b. ยาตามอาการ (Symptomatic Treatment):
+        - ระบุครบทุกอาการที่ต้องรักษาตามที่มีใน Guideline/Dose table (ไข้, ปวด, คัดจมูก, ไอ, เจ็บคอ)
+        - ชื่อตัวยา + ขนาดยา + วิธีใช้
+
+     รูปแบบขนาดยา (ดูกฎเหล็กข้อ 4):
+     - แสดงขนาดยาเป็นช่วง Min-Max เต็มช่วงตาม Guideline เสมอ
+     - ระบุระยะเวลารักษาให้จำเพาะกับผู้ป่วย (เช่น เด็ก <2 ปี หรืออาการรุนแรง = 10 วัน;
+       เด็ก 2-5 ปี อาการ mild-moderate = 7 วัน) เมื่อ Guideline ระบุเงื่อนไขไว้
+     - ยาน้ำ (Drug Calculator): ถ้าทราบหรือผู้ใช้ระบุความแรง (mg/mL) ให้คำนวณปริมาตรต่อครั้งเป็น mL
+       สูตร: ปริมาตร (mL) = ขนาดยาต่อครั้ง (mg) / ความแรง (mg ต่อ mL)
+       ถ้ายังไม่ทราบความแรง ให้ถามความแรงที่มีในร้าน แล้วแสดงตัวอย่างการคำนวณเป็น mL
+
+  **4. คำแนะนำดูแลตัวเอง**
+     ดูแลตัวเอง + ป้องกันการแพร่เชื้อ
+
+  **5. สัญญาณเตือน (Red Flags)**
+     เฉพาะอาการรุนแรงที่ต้องส่งต่อแพทย์จริงเท่านั้น
+
+### ประเภท 3: บทสนทนาต่อเนื่อง (Follow-up Case)
+สังเกต: มี chat history + ถามเพิ่มเติมในเคสเดิม (เช่น "ถ้าแพ้ penicillin?", "กินยามา 3 วันยังไม่ดีขึ้น",
+"ถ้าเป็นผู้ใหญ่ขนาดเท่าไร", "แล้วเด็ก 15 กก. ล่ะ")
+วิธีตอบ:
+- ห้ามใช้โครงสร้าง 5 ขั้นตอนซ้ำเด็ดขาด -- ตอบเฉพาะประเด็นที่ถามเพิ่มอย่างกระชับ เจาะจง
+- เชื่อมโยงกับบริบทผู้ป่วยเดิม (อายุ/น้ำหนัก/ประวัติแพ้ที่แจ้งไว้แล้ว) โดยไม่ตอบข้อมูลเดิมซ้ำทั้งหมด
+- **การ Scale ขนาดยา:** ถ้า follow-up เปลี่ยนอายุ/น้ำหนัก/กลุ่มผู้ป่วย (เช่น เดิมถามเด็ก ต่อมาถามผู้ใหญ่
+  หรือเปลี่ยนน้ำหนัก) ต้องคำนวณขนาดยาใหม่จาก Guideline ให้ตรงกับพารามิเตอร์ใหม่เสมอ
+  ห้ามคัดลอกตัวเลขเดิม -- ค่าต้องเปลี่ยนตามอายุ/น้ำหนัก/เกณฑ์ Guideline อย่างสมเหตุสมผล
+- **โรคใหม่ในผู้ป่วยคนเดิม:** ถ้าเป็นการเริ่มประเมินโรค/อาการชุดใหม่ (คนละโรคกับก่อนหน้า)
+  ให้ประเมินใหม่เป็นเคสใหม่ (ใช้โครงสร้าง 5 ขั้นได้) แต่คงข้อมูลผู้ป่วยที่ทราบแล้ว
+  และห้ามนำแผนการรักษาของโรคเดิมมาปนกับโรคใหม่
+
+### ประเภท 4: ข้อมูลไม่ครบ (Insufficient Information) -- ต้องซักประวัติก่อน
+สังเกต: ถามเคสผู้ป่วยแต่ขาดข้อมูลสำคัญที่จำเป็นต่อการตัดสินใจ
+ข้อมูลขั้นต่ำที่ต้องมีก่อนสรุปการรักษา: (1) อาการหลัก (2) ระยะเวลาที่มีอาการ (3) มีไข้/อุณหภูมิ
+(4) ประวัติแพ้ยา (5) อายุ และน้ำหนักตัว (สำหรับเด็ก)
+วิธีตอบ:
+- ประเมินเบื้องต้นจากข้อมูลที่มี (บอกโรคที่เป็นไปได้แบบกว้างๆ ได้ แต่ยังไม่ฟันธงยา/ขนาดยา)
+- ซักประวัติเพิ่มเฉพาะข้อที่ "ขาด" โดยทุกคำถามต้องมีเหตุผลทางคลินิกกำกับ เช่น:
+  - อาการเป็นมากี่วัน -- เพื่อจำแนก bacterial vs viral และประเมินความรุนแรง
+  - มีไข้หรือไม่ วัดได้เท่าไร -- เพื่อประเมินความรุนแรงและเข้าเกณฑ์วินิจฉัย
+  - ประวัติแพ้ยา และแพ้แล้วมีอาการอย่างไร (ผื่น/บวม/แน่นหน้าอก) -- เพื่อเลือกยาทดแทนที่ปลอดภัย
+  - น้ำหนักตัว (เด็ก) -- เพื่อคำนวณขนาดยาตามน้ำหนักอย่างปลอดภัย
+  - อายุ -- เพื่อเลือก Guideline ให้ถูกเล่มและตรวจข้อห้ามใช้ตามอายุ
+- จัด Format คำถามเป็น bullet อ่านง่าย (คำถาม -- เหตุผล)
+
+### ประเภท 5: เคส Negative / Trick (ปฏิเสธอย่างมีหลักการ)
+สังเกต: ผู้ป่วยขอยาที่ไม่เหมาะสม (เช่น ขอยาปฏิชีวนะทั้งที่เป็นหวัดไวรัส), พยายามชี้นำการวินิจฉัย,
+อ้างว่า "เคยใช้แล้วหาย" เพื่อขอ AB, หรือข้อมูลชวนสับสน/หลอกระบบ
+วิธีตอบ:
+- อย่าคล้อยตามคำขอที่ขัด Guideline -- ปฏิเสธอย่างสุภาพพร้อมเหตุผลทางคลินิกที่ถูกต้อง
+- เสนอทางเลือกที่ถูกต้องและปลอดภัยแทน (เช่น ยาตามอาการ + เกณฑ์ที่จะพิจารณาให้ AB จริง)
+- แยกอาการแพ้ยาจริง (ผื่นลมพิษ/anaphylaxis) ออกจากผลข้างเคียง/อาการไม่พึงประสงค์ที่ไม่ใช่การแพ้
+  ก่อนตัดสินใจเปลี่ยนยา -- ถ้าข้อมูลไม่ชัด ให้ซักลักษณะการแพ้ก่อน
+
+### ประเภท 6: นอกขอบเขต (Out-of-Scope)
+สังเกต: โรคที่ไม่ใช่ URI (เบาหวาน, ความดัน, โรคผิวหนัง ฯลฯ)
+วิธีตอบ:
+- แจ้งชัดเจน: "คำถามนี้อยู่นอกขอบเขตคู่มือในระบบ (URI Guideline)"
+- ให้ข้อมูลทั่วไปที่ถูกต้องอย่างกระชับ แยกชัดว่าเป็นความรู้นอกคู่มือ ไม่ใช่ข้อมูลจาก Guideline ในระบบ
+- แนบ URL อ้างอิงภายนอกตามกฎการอ้างอิงภายนอกด้านล่าง (ต้องเป็นลิงก์ที่ชี้ถึงเอกสารจริง ไม่ใช่หน้าแรก)
+
+====================================================================
+กฎการอ้างอิง (REFERENCE RULES)
+====================================================================
+
+1. คัดกรองคู่มือตามอายุ -- ตรวจสอบก่อนอ้างอิงทุกครั้ง:
+   - เด็ก (<18 ปี): ใช้ "URI เด็ก 2562" เป็นหลัก
+   - ผู้ใหญ่ (>=18 ปี): ใช้ "AAFP 2022" เป็นหลัก
+   - ห้ามนำ Guideline เด็กไปอ้างกับผู้ใหญ่ และห้ามนำ Guideline ผู้ใหญ่ไปอ้างกับเด็กเด็ดขาด
+
+2. เลขหน้าอ้างอิง -- ดึงจากฟิลด์ "Page:" ใน Context header เท่านั้น:
+   - ใช้เลขหน้าจาก header ของ chunk ที่คุณหยิบข้อมูลมาจริง (chunk ที่คุณอ้าง)
+   - เลขหน้าต้องคู่กับ source เดียวกันเสมอ ห้ามจับเลขหน้าของเล่มหนึ่งไปใส่ให้อีกเล่ม
+   - รูปแบบ: [Ref: AAFP 2022, หน้า X] / [Ref: URI เด็ก 2562, หน้า Y] / [Ref: Dose, หน้า Z]
+   - ห้ามเดาหรือเขียนเลขหน้าขึ้นเอง และห้ามใช้เลขหน้าวารสาร/เลขอื่นนอกจากฟิลด์ Page
+
+3. ทุกคำตอบเชิงคลินิก (ประเภท 1, 2, 3, 5) ต้องมี [Ref: ...] กำกับอย่างน้อยหนึ่งรายการ
+   - ถ้าใช้ข้อมูลจากหลาย chunk/หลายเล่ม ให้อ้างครบทุกแหล่งที่ใช้จริง
+
+4. แยก source ภายใน vs ภายนอกให้ชัด:
+   - ข้อมูลจาก Guideline ในระบบ: ใช้ [Ref: ชื่อคู่มือ, หน้า X]
+   - ข้อมูลจากความรู้ทั่วไป/ภายนอก: ต้องระบุชัดว่าเป็นข้อมูลนอกคู่มือ + แนบ URL (ดูข้อ 8)
+   - ห้ามผสมข้อมูลนอกคู่มือเข้ากับ [Ref: Guideline] จนผู้ใช้แยกไม่ออกว่าอันไหนมาจากคู่มือ
+   - **การแยกให้ผู้ใช้เห็นชัด (VISIBLE SEPARATION):** เมื่อจำเป็นต้องใช้ความรู้ทั่วไปนอกคู่มือร่วมด้วย
+     ให้วางไว้ใต้หัวข้อกำกับชัดเจน เช่น **"ข้อมูลนอกคู่มือ (ความรู้ทั่วไป):"** แยกเป็นย่อหน้า/บล็อกของ
+     ตัวเอง ไม่แทรกปนกับประโยคที่อ้าง [Ref: Guideline] -- ผู้ใช้ต้องมองออกทันทีว่าส่วนไหนมาจากคู่มือ
+     ส่วนไหนเป็นความรู้ทั่วไป โดยไม่ต้องเดา
+
+5. ระบุหน้าให้ตรงตำแหน่งจริง (Citation Precision):
+   - อ้างหน้าของ chunk ที่ "มีข้อความนั้นจริง" ไม่ใช่หน้าใกล้เคียง
+   - ถ้าข้อมูลเดียวกันปรากฏทั้งใน "ตารางสรุป" และ "หัวข้อเฉพาะ" ให้ยึดหัวข้อเฉพาะเป็นหลัก
+     (อ้างตารางเพิ่มได้) เช่น Laryngitis -> ใช้หัวข้อ Laryngitis โดยตรง และอ้าง Table 1 เสริมได้
+
+6. เมื่อข้อมูลจากหลายแหล่ง "ขัดแย้งกัน" (CONFLICT HANDLING) -- ห้ามตัดสินเงียบๆ แทนเภสัชกร:
+   ใช้เมื่อพบตัวเลข/คำแนะนำที่ต่างกันสำหรับผู้ป่วยกลุ่มเดียวกัน (ทั้งข้ามเล่ม URI 2562 vs AAFP 2022
+   หรือระหว่าง chunk คนละหัวข้อ/คนละหน้าในเล่มเดียวกัน)
+   - **ต้องแสดงทั้งสองด้านให้ผู้ใช้เห็นชัด** ตามรูปแบบ:
+     "จากแหล่ง [ชื่อคู่มือ, หน้า X] พบว่า ___ ในขณะที่แหล่ง [ชื่อคู่มือ, หน้า Y] พบว่า ___
+      ซึ่งต่างกันตรง ___"
+   - จากนั้นประเมินเชิงความน่าจะเป็น/หลักการว่าแนวทางใดเหมาะกับผู้ป่วยรายนี้มากกว่า พร้อมเหตุผล
+     (เช่น ตรงช่วงวัย/บริบทไทย/ความรุนแรง/หลักฐานระดับ evidence) -- แต่ **เสนอให้เภสัชกรพิจารณา
+     ไม่ฟันธงแทน** และยังคงแสดงค่าจากทั้งสองแหล่งไว้
+   - ถ้าเป็นเรื่องความปลอดภัย (เช่น ขนาดยาสูงสุด/ข้อห้ามในเด็ก) เมื่อไม่แน่ใจให้โน้มไปทางที่ปลอดภัยกว่า
+     (conservative) พร้อมบอกเหตุผล
+   - ถ้าทั้งสองเล่มพูดถึงเรื่องเดียวกันโดยไม่ขัดกัน ให้อ้างทั้งสองเสริมกัน ไม่เลือกเล่มเดียวแล้วละอีกเล่ม
+
+7. ห้ามตอบว่า "ไม่มีข้อมูลใน Guideline" ถ้าข้อมูลนั้นปรากฏอยู่ใน Context จริง
+   - ตรวจ Context ทุก chunk (รวม dose table และหัวข้อ symptomatic) ก่อนสรุปว่าไม่มี
+   - ตอบข้อมูลตามอาการ (Symptomatic) ให้ครบทุกอาการเท่าที่ Guideline/Dose table ครอบคลุม
+
+8. การอ้างอิงภายนอก (External URL) -- คุณภาพลิงก์สำคัญมาก:
+   - **รูปแบบบังคับ** สำหรับทุกแหล่งภายนอก ต้องเขียนในบล็อก [Ref: ...] เท่านั้น ห้ามใช้ลิงก์ markdown
+     ธรรมดา ([ข้อความ](url)) เป็นแหล่งอ้างอิง เพราะระบบจะไม่แสดงในแผงอ้างอิงให้ผู้ใช้
+     รูปแบบที่ถูกต้อง: [Ref: ความรู้นอกคู่มือ - ชื่อแหล่ง/เอกสาร, ตำแหน่ง (URL)]
+     ตัวอย่าง: [Ref: ความรู้นอกคู่มือ - ADA Standards of Care 2024, Section 9 Pharmacologic Approaches (https://...)]
+   - URL ต้องชี้ไปยัง "เอกสาร/หน้าที่มีเนื้อหาตรงกับสิ่งที่ตอบ" โดยตรง
+     **ห้ามใช้หน้าแรก/หน้าต้อนรับ/หน้า Overview (Landing/Home) ขององค์กรเป็นแหล่งอ้างอิงเด็ดขาด**
+     (เช่น ห้ามให้ลิงก์ https://www.gastrothai.or.th/ เฉยๆ -- ผู้ใช้กดแล้วต้องเจอเอกสารที่อ้างทันที)
+   - ระบุตำแหน่งในเอกสารเสมอเมื่อทำได้ (เลขหน้า/หัวข้อ/ชื่อ section) เพื่อให้ตรวจสอบได้ทันที
+   - อ้างอิงเฉพาะแหล่งที่น่าเชื่อถือและมั่นใจว่า URL ถูกต้องจริง (เช่น WHO, CDC, ราชวิทยาลัย/สมาคมวิชาชีพ,
+     คู่มือ/ตำราที่เผยแพร่อย่างเป็นทางการ)
+   - **ห้ามแต่ง URL ขึ้นเอง** ถ้าไม่มั่นใจว่าลิงก์นั้นมีอยู่จริงและชี้ถึงเนื้อหาที่อ้างโดยตรง ให้ระบุชื่อแหล่ง/
+     เอกสาร/หัวข้อ ที่ชัดเจนแทน (บอกว่าให้ค้นจากแหล่งนั้น) ดีกว่าการให้ลิงก์หน้าแรกที่กดแล้วไม่เจอข้อมูล
+   - เลือกใช้ URL ที่เสถียรและมีโอกาสเปิดได้จริงสูง (เช่น หน้า/ไฟล์ PDF ที่เผยแพร่ถาวรบนเว็บทางการ
+     ขององค์กร) หลีกเลี่ยงลิงก์ชั่วคราวหรือลิงก์ที่ถูกย้าย/ลบง่าย
+     หมายเหตุ: ระบบมีชั้นตรวจสอบ URL อัตโนมัติ -- ถ้าลิงก์เปิดไม่ได้จริง ระบบจะถอดลิงก์นั้นออกจากแผง
+     อ้างอิงและคงไว้เพียงชื่อแหล่ง ดังนั้นจงให้ลิงก์ที่ถูกต้องแม่นยำที่สุดเท่าที่มั่นใจ
+
+9. คำถามมั่วๆ หรือทดสอบระบบ (เช่น "ทดสอบระบบ", "dsfsf"):
+   - ตอบสั้นกระชับว่าระบบพร้อมใช้งาน ไม่ต้องแสดงเลขอ้างอิง
+
+====================================================================
+รูปแบบการจัดหน้าคำตอบ (ANSWER FORMATTING -- เน้น UX ให้เภสัชกรอ่านเร็ว)
+====================================================================
+
+- ใช้หัวข้อ **ตัวหนา** (bold) สำหรับหัวข้อหลักทุกหัวข้อ
+- **ตัวหนา** จุดสำคัญที่ต้อง Focus: ชื่อยา, ขนาดยา, การตัดสินใจ "จ่าย/ไม่จ่าย" ยาปฏิชีวนะ, Red Flag
+- ใช้ bullet point จัดระเบียบข้อมูล และเว้นบรรทัดระหว่างหัวข้อให้อ่านง่าย
+- ทุกการตัดสินใจ (เลือกยา, ไม่จ่าย AB, ส่งต่อแพทย์) ต้องมีเหตุผลทางคลินิกที่ถูกต้องกำกับ --
+  ไม่ใช่แค่บอกผลลัพธ์
+- กระชับ ไม่เยิ่นเย้อ ไม่ตอบซ้ำ
+- เข้าใจคำที่สะกดต่างหรือใช้คำต่างกันแต่ความหมายเดียวกัน (เช่น คออักเสบ/เจ็บคอ/pharyngitis,
+  หูชั้นกลางอักเสบ/AOM, ไซนัสอักเสบ/rhinosinusitis, อะม็อกซี่/amoxicillin)
 """
 
 # ─── User Message Template ───────────────────────────────────────────────────
 
-USER_MESSAGE_TEMPLATE = """**คำถาม:** {question}
+USER_MESSAGE_TEMPLATE = """**คำถามปัจจุบัน:** {question}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+====================================================================
 **Context จากฐานข้อมูล:**
 
 {context}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+====================================================================
 **คำสั่ง:**
-1. วิเคราะห์คำถามว่าเป็น "ถามความรู้ทั่วไป" หรือ "ปรึกษาเคสผู้ป่วย"
-2. เลือกรูปแบบการตอบ (ประเภท 1, 2, 3 หรือ 4) ให้เหมาะสมกับคำถามที่สุด
-3. ตอบคำถามอย่างกระชับตรงจุด โดยมี [Ref: ...] กำกับเสมอ"""
+1. วิเคราะห์และจำแนกประเภทคำถาม (ประเภท 1-6) โดยประเมินร่วมกับประวัติสนทนา (หากมี) -- ถ้าเป็นการถามต่อในเคสเดิม ตอบเฉพาะประเด็นใหม่ ไม่ตอบซ้ำทั้งหมด
+2. ตรวจสอบอายุและน้ำหนักตัวผู้ป่วยเพื่อเลือก Guideline ให้ถูกเล่ม (AAFP สำหรับผู้ใหญ่, URI เด็ก 2562 สำหรับเด็ก) -- ห้ามอ้างข้ามกลุ่มอายุเด็ดขาด
+3. ตรวจสอบว่าข้อมูลใน Context ที่จะใช้ ตรงกับโรค ช่วงวัย และหัวข้อที่ถาม -- ถ้าไม่ตรงห้ามนำมาอ้างอิง
+4. ขนาดยาและระยะเวลารักษาต้องมาจาก Context เท่านั้น ห้ามแต่งตัวเลขเอง แสดงเป็นช่วง Min-Max และคำนวณตามน้ำหนัก/อายุของผู้ป่วยรายนี้
+5. ถ้าเป็น follow-up ที่เปลี่ยนอายุ/น้ำหนัก/กลุ่มผู้ป่วย ต้องคำนวณขนาดยาใหม่ให้ตรงพารามิเตอร์ใหม่ ห้ามคัดลอกตัวเลขจากคำตอบก่อนหน้า
+6. ห้ามเติมข้อมูลที่ผู้ใช้ไม่ได้ให้ (โดยเฉพาะประวัติแพ้ยา) ถ้าข้อมูลจำเป็นขาดหาย ให้ซักประวัติพร้อมเหตุผลก่อน
+7. เลือกรูปแบบคำตอบที่เหมาะสมตาม SYSTEM INSTRUCTION อย่างเคร่งครัด
+8. ทุกคำตอบเชิงคลินิกต้องอ้างอิง [Ref: ...] โดยดึงเลขหน้าจาก Context header จริงเท่านั้น ห้ามเดา
+9. แยกชัดว่าข้อมูลใดมาจาก Guideline (Context) และข้อมูลใดเป็นความรู้ทั่วไป -- ถ้าเป็นข้อมูลนอกคู่มือต้องแนบ URL ที่ชี้ถึงเอกสาร/หน้าจริง ไม่ใช่หน้าแรกของเว็บไซต์"""
 
 # ─── Initialize ──────────────────────────────────────────────────────────────
 
@@ -128,12 +340,13 @@ def _init():
     count       = _client.count(collection_name=COLLECTION_NAME).count if exists else 0
     print(f"[RAG] Qdrant loaded: {count} documents in '{COLLECTION_NAME}'")
 
-    # Gemini Chat Model
+    # Gemini Chat Model — low temperature for deterministic, guideline-faithful answers
     _chat_model = genai.GenerativeModel(
-        model_name        = CHAT_MODEL,
+        model_name         = CHAT_MODEL,
         system_instruction = SYSTEM_PROMPT,
+        generation_config  = chat_generation_config(),
     )
-    print(f"[RAG] Chat model: {CHAT_MODEL}")
+    print(f"[RAG] Chat model: {CHAT_MODEL} (gen_config={chat_generation_config()})")
 
 
 def get_qdrant_client():
@@ -144,14 +357,28 @@ def get_qdrant_client():
 
 # ─── Embed Query ─────────────────────────────────────────────────────────────
 
+_embed_cache: "OrderedDict[str, list[float]]" = OrderedDict()
+
+
 def embed_query(text: str) -> list[float]:
-    """Embed query text → vector"""
+    """Embed query text → vector (with small LRU cache to cut repeat latency)"""
     _init()
+    key = (text or "").strip()
+    if key and key in _embed_cache:
+        _embed_cache.move_to_end(key)          # mark as recently used
+        return _embed_cache[key]
+
     result = genai.embed_content(
         model   = EMBED_MODEL,
         content = text,
     )
-    return result["embedding"]
+    embedding = result["embedding"]
+
+    if key and EMBED_CACHE_SIZE > 0:
+        _embed_cache[key] = embedding
+        while len(_embed_cache) > EMBED_CACHE_SIZE:
+            _embed_cache.popitem(last=False)   # evict least-recently-used
+    return embedding
 
 
 # ─── Search helpers ───────────────────────────────────────────────────────────
@@ -291,9 +518,9 @@ def _apply_rank_order(candidates: list[dict], ordered_ids: list[str]) -> list[di
         if cid not in by_id or cid in seen:
             continue
         item = by_id[cid]
-        # คะแนนจากอันดับ (อันดับ 1 = 1.0)
+        # คะแนนจากอันดับ (อันดับ 1 = 1.0) — ใช้จัดลำดับเท่านั้น
+        # ไม่ทับ distance เดิม เพื่อให้ vector_score จริงยังคงอยู่สำหรับแสดงความเกี่ยวข้อง
         item["rerank_score"] = 1.0 - (rank / max(n, 1))
-        item["distance"] = 1.0 - item["rerank_score"]
         item["rerank_method"] = "llm"
         ranked.append(item)
         seen.add(cid)
@@ -310,7 +537,6 @@ def _apply_rank_order(candidates: list[dict], ordered_ids: list[str]) -> list[di
             continue
         item = dict(c)
         item["rerank_score"] = float(item.get("vector_score", 0.0)) * 0.5
-        item["distance"] = 1.0 - item["rerank_score"]
         item["rerank_method"] = "llm_tail"
         leftovers.append(item)
     leftovers.sort(key=lambda x: x.get("vector_score", 0.0), reverse=True)
@@ -336,10 +562,7 @@ def _rerank_llm(query: str, candidates: list[dict]) -> list[dict] | None:
     for i, c in enumerate(candidates):
         cid = _candidate_key(c, i)
         valid_ids.append(cid)
-        jpage = c.get("journal_page")
         page_bit = f"p.{c.get('page')}"
-        if jpage is not None:
-            page_bit += f"/j.{jpage}"
         lines.append(
             f"- id={cid} | source={c.get('source')} | {page_bit} | "
             f"group={c.get('patient_group', 'general')} | "
@@ -348,7 +571,11 @@ def _rerank_llm(query: str, candidates: list[dict]) -> list[dict] | None:
         )
 
     prompt = f"""คุณเป็นเภสัชกรช่วยจัดอันดับเอกสารอ้างอิงสำหรับคำถามด้านล่าง
-เรียงจากเกี่ยวข้องมาก → น้อย โดยดูโรค/กลุ่มผู้ป่วย/หน้า guideline ให้ตรงคำถาม
+เรียงจากเกี่ยวข้องมาก -> น้อย ตามเกณฑ์ต่อไปนี้ (เรียงตามความสำคัญ):
+1. ตรงโรค/หัวข้อที่ถาม (เช่น ถาม pharyngitis ต้องเลือก section ที่เกี่ยวกับ pharyngitis ไม่ใช่ sinusitis)
+2. ตรงกลุ่มผู้ป่วย (เด็ก/ผู้ใหญ่) -- ถ้าผู้ป่วยเป็นเด็กให้ priority chunk ที่ group=pediatric, ถ้าผู้ใหญ่ให้ priority chunk ที่ group=adult
+3. ตรงหน้า guideline ที่เกี่ยวข้องกับคำถาม
+4. ข้อมูลขนาดยา (dose_table) ที่ตรงกับยาที่เกี่ยวข้อง
 
 คำถาม:
 {query}
@@ -413,7 +640,6 @@ def _rerank_bm25(query: str, candidates: list[dict]) -> list[dict]:
         item = dict(chunk)
         item["bm25_score"] = float(raw_bm25[i])
         item["rerank_score"] = rerank_score
-        item["distance"] = 1.0 - rerank_score
         item["rerank_method"] = "bm25"
         scored.append(item)
 
@@ -469,11 +695,14 @@ def _select_with_source_coverage(ranked: list[dict], top_k: int) -> list[dict]:
     def _key(c: dict) -> str:
         return c.get("chunk_id") or f"{c.get('source')}_{c.get('page')}_{c.get('heading')}"
 
-    # pass 1: best ของแต่ละ source
+    # pass 1: best ของแต่ละ source — seed เฉพาะเล่มที่เกี่ยวข้องจริง (vector floor)
+    # กันการยัด chunk ข้ามหัวข้อ/ข้ามช่วงวัยเข้ามาเพียงเพื่อให้ครบทุกเล่ม
     seen_sources: set[str] = set()
     for c in ranked:
         src = c.get("source") or "?"
         if src in seen_sources:
+            continue
+        if (1 - c.get("distance", 0.0)) < SOURCE_MIN_SIMILARITY:
             continue
         selected.append(c)
         selected_keys.add(_key(c))
@@ -570,22 +799,44 @@ def search_chunks(query: str, top_k: int = TOP_K) -> list[dict]:
 
 # ─── Build Context ───────────────────────────────────────────────────────────
 
-def build_context(chunks: list[dict]) -> str:
-    """สร้าง context string จาก chunks สำหรับส่งให้ LLM"""
+def _best_similarity(chunks: list[dict]) -> float:
+    """ค่า similarity จริงสูงสุด (vector) ในชุด chunk — ใช้ประเมินว่าคำถามอยู่ในขอบเขตหรือไม่"""
+    return max((1 - c.get("distance", 0.0) for c in chunks), default=0.0)
+
+
+def build_context(chunks: list[dict], weak_context: bool = False) -> str:
+    """สร้าง context string จาก chunks สำหรับส่งให้ LLM
+    เพิ่ม patient_group และ source_type เพื่อให้ AI ตรวจสอบ age-group alignment ได้
+
+    หมายเหตุเรื่องเลขหน้า: ใช้ Page (เลขหน้าไฟล์ PDF) เป็นเลขอ้างอิงเดียวเสมอ
+    ไม่ใส่ Journal page เข้า context เพื่อกันโมเดลอ้างเลขหน้าผิดเล่ม
+    """
     if not chunks:
         return "ไม่พบข้อมูลที่เกี่ยวข้องในฐานข้อมูล"
+
+    _SOURCE_TYPE_MAP = {
+        "AAFP": "GUIDELINE",
+        "URI": "GUIDELINE",
+        "Dose": "DOSE_TABLE",
+    }
+    _GROUP_LABEL = {
+        "pediatric": "เด็ก",
+        "adult": "ผู้ใหญ่",
+        "both": "เด็ก+ผู้ใหญ่",
+        "general": "ทั่วไป",
+    }
 
     parts = []
     for i, chunk in enumerate(chunks, 1):
         src        = chunk.get("source", "?")
         page       = chunk.get("page", "?")
-        jpage      = chunk.get("journal_page")
         head       = chunk.get("heading", "")
         similarity = 1 - chunk.get("distance", 0)
+        pgroup     = chunk.get("patient_group", "general")
+        stype      = _SOURCE_TYPE_MAP.get(src, "OTHER")
 
-        header = f"[เอกสารอ้างอิง {i}] Source: {src} | Page: {page}"
-        if jpage is not None:
-            header += f" | Journal: {jpage}"
+        header = f"[เอกสารอ้างอิง {i}] Source: {src} | Type: {stype} | Page: {page}"
+        header += f" | PatientGroup: {_GROUP_LABEL.get(pgroup, pgroup)}"
         pdf_file = chunk.get("pdf_file")
         if pdf_file:
             header += f" | PDF: {pdf_file}#page={page}"
@@ -598,7 +849,193 @@ def build_context(chunks: list[dict]) -> str:
 
         parts.append(f"{header}\n{chunk['content']}")
 
-    return ("\n\n" + "=" * 60 + "\n\n").join(parts)
+    body = ("\n\n" + "=" * 60 + "\n\n").join(parts)
+
+    if weak_context:
+        note = (
+            "หมายเหตุระบบ: ข้อมูลใน Context ด้านล่างมีความเกี่ยวข้องกับคำถาม \"ต่ำ\" "
+            "อาจเป็นคำถามนอกขอบเขตคู่มือ (URI Guideline) หรือไม่มีข้อมูลตรงในระบบ "
+            "ห้ามฝืนอ้าง [Ref: Guideline] กับเนื้อหาที่ไม่ตรงคำถาม "
+            "ให้ระบุชัดว่าเป็นความรู้นอกคู่มือและแนบ URL ภายนอกแทน\n\n"
+        )
+        body = note + body
+
+    return body
+
+
+# ─── Source list builders (shared by streaming + non-streaming) ──────────────
+
+import re as _re
+
+# จับ [Ref: ... ] ทุกก้อน แล้วค่อยแยกว่าเป็นอ้างอิงภายนอกหรือไม่
+_REF_BLOCK_RE = _re.compile(r'\[Ref:\s*([^\]]+)\]')
+_URL_RE = _re.compile(r'\(?(https?://[^\s\)\]]+)\)?')
+# คำบ่งชี้ว่าเป็นความรู้นอกคู่มือ (ไม่พึ่งวลี "อ้างอิงจาก" อย่างเดียว เพราะโมเดลใช้ไม่สม่ำเสมอ)
+_EXT_MARKERS = ("นอกคู่มือ", "นอกเอกสาร", "นอกขอบเขต", "ความรู้ทั่วไป")
+
+
+def _clean_external_label(text: str) -> str:
+    """ตัดคำนำ/วลีซ้ำ ให้เหลือชื่อแหล่งอ้างอิงที่อ่านง่าย"""
+    label = text.strip()
+    for prefix in ("ความรู้นอกคู่มือ", "ความรู้ทั่วไปทางการแพทย์", "ความรู้ทั่วไป"):
+        if label.startswith(prefix):
+            label = label[len(prefix):]
+    label = label.lstrip(" -—:").strip()
+    if label.startswith("อ้างอิงจาก"):
+        label = label[len("อ้างอิงจาก"):].strip()
+    return label or text.strip()
+
+
+def _guideline_sources(chunks: list[dict], weak_context: bool) -> tuple[list[dict], set]:
+    """
+    สร้างรายการแหล่งอ้างอิงจาก Guideline โดยกรองด้วย similarity จริง (vector)
+      - weak_context (นอกขอบเขต): ไม่แสดง Guideline เป็นแหล่งอ้างอิง กันเข้าใจผิดว่าอ้างจากคู่มือ
+      - ปกติ: แสดงเฉพาะ chunk ที่ similarity >= SOURCE_MIN_SIMILARITY
+      - กันเคสกรองหมด: ถ้าไม่ weak แต่ไม่เหลือเลย ให้คง chunk ที่เกี่ยวข้องสุด 1 อัน
+    """
+    sources: list[dict] = []
+    seen: set = set()
+
+    if weak_context:
+        return sources, seen
+
+    for chunk in chunks:
+        similarity = round(1 - chunk.get("distance", 0.0), 4)
+        if similarity < SOURCE_MIN_SIMILARITY:
+            continue
+        key = f"{chunk['source']}_p{chunk['page']}"
+        if key in seen:
+            continue
+        seen.add(key)
+        sources.append({
+            "source"         : chunk["source"],
+            "page"           : chunk["page"],
+            "heading"        : chunk["heading"],
+            "similarity"     : similarity,
+            "reference_type" : "guideline",
+        })
+
+    if not sources and chunks:
+        best = max(chunks, key=lambda c: 1 - c.get("distance", 0.0))
+        seen.add(f"{best['source']}_p{best['page']}")
+        sources.append({
+            "source"         : best["source"],
+            "page"           : best["page"],
+            "heading"        : best["heading"],
+            "similarity"     : round(1 - best.get("distance", 0.0), 4),
+            "reference_type" : "guideline",
+        })
+
+    return sources, seen
+
+
+# ─── External URL reachability check ─────────────────────────────────────────
+
+_url_verify_cache: dict[str, bool] = {}
+
+
+# สถานะที่แปลว่า "หน้ายังมีอยู่" แม้เซิร์ฟเวอร์จะบล็อก bot ของเรา (เช่น CDC ตอบ 403)
+# -- เบราว์เซอร์จริงของผู้ใช้ยังเปิดได้ จึงไม่ถือว่าลิงก์ตาย
+_URL_ALIVE_BLOCKED = {401, 403, 405, 406, 429}
+# สถานะที่แปลว่า "หน้าหายจริง" -> ถือว่าลิงก์ตาย
+_URL_DEAD = {404, 410}
+
+
+def verify_url_reachable(url: str, timeout: float = URL_VERIFY_TIMEOUT) -> bool:
+    """
+    ตรวจว่า URL ภายนอก "ยังมีอยู่จริง" หรือไม่ (กันอ้างอิงลิงก์ตาย/หน้าหาย)
+    ใช้ stdlib เท่านั้น (ไม่เพิ่ม dependency) — HEAD ก่อน ถ้าไม่รองรับค่อย GET
+    ผลลัพธ์ถูก cache ระหว่าง process เพื่อลด latency
+
+    เกณฑ์ (สอดคล้องเจตนา "ต้องกดเปิดได้ ไม่ใช่หน้าหาย"):
+      - 2xx/3xx                    -> เปิดได้ (True)
+      - 401/403/405/406/429        -> หน้ายังมีอยู่แต่บล็อก bot (True — browser จริงเปิดได้)
+      - 404/410                    -> หน้าหายจริง (False)
+      - DNS/connection error       -> เข้าไม่ถึงเลย (False)
+      - 5xx                        -> เซิร์ฟเวอร์มีอยู่แต่ error ชั่วคราว (True — โดเมนยัง live)
+    """
+    if not url:
+        return False
+    if url in _url_verify_cache:
+        return _url_verify_cache[url]
+
+    import urllib.request
+    import urllib.error
+
+    headers = {"User-Agent": "Mozilla/5.0 (PharmaCare-AI reference checker)"}
+
+    def _classify_http(code: int) -> bool:
+        if 200 <= code < 400:
+            return True
+        if code in _URL_DEAD:
+            return False
+        if code in _URL_ALIVE_BLOCKED:
+            return True
+        if code >= 500:            # เซิร์ฟเวอร์ยังมีอยู่ (error ชั่วคราว)
+            return True
+        return False               # 4xx อื่นๆ ที่ไม่ชัด -> ถือว่าไม่ปลอดภัยพอ
+
+    def _try(method: str):
+        req = urllib.request.Request(url, method=method, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return _classify_http(resp.status)
+        except urllib.error.HTTPError as e:
+            return _classify_http(e.code)
+        except urllib.error.URLError:
+            return False           # DNS/connection/timeout -> เข้าไม่ถึงจริง
+        except Exception:
+            return None            # เหตุอื่น -> ลอง method ถัดไป
+
+    ok = _try("HEAD")
+    if ok is not True:             # HEAD ไม่ยืนยันว่า alive -> ลอง GET ให้แน่ใจ
+        got = _try("GET")
+        if got is not None:
+            ok = got
+    ok = bool(ok)
+    _url_verify_cache[url] = ok
+    return ok
+
+
+def _append_external_refs(sources: list[dict], seen: set, answer: str) -> None:
+    """
+    แยกอ้างอิงภายนอกจากข้อความคำตอบแล้วเติมเข้า sources
+    ถือว่าเป็น external เมื่อ [Ref: ...] มี URL หรือมีคำบ่งชี้ว่าเป็นความรู้นอกคู่มือ
+    (ไม่ผูกกับวลี "อ้างอิงจาก" เดียว — โมเดลเขียนไม่สม่ำเสมอ)
+
+    ถ้า VERIFY_EXTERNAL_URLS เปิดอยู่: ตรวจว่า URL เปิดได้จริง — ถ้าลิงก์ตาย จะถอด URL ออก
+    (คงชื่อแหล่งไว้) และตั้ง url_status="unreachable" กันผู้ใช้กดแล้วเจอหน้า Not Found
+    """
+    for inner in _REF_BLOCK_RE.findall(answer or ""):
+        url_match = _URL_RE.search(inner)
+        is_external = bool(url_match) or any(m in inner for m in _EXT_MARKERS)
+        if not is_external:
+            continue  # เป็น [Ref: Guideline, หน้า X] — มี guideline source อยู่แล้ว
+        url = url_match.group(1) if url_match else None
+        label = _clean_external_label(inner)
+        dedup_key = url or label
+        if not dedup_key or dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+
+        url_status = "unknown"
+        if url and VERIFY_EXTERNAL_URLS:
+            if verify_url_reachable(url):
+                url_status = "verified"
+            else:
+                url_status = "unreachable"
+                url = None  # ถอดลิงก์ตายออก คงไว้แค่ชื่อแหล่งให้ผู้ใช้ไปค้นเอง
+
+        sources.append({
+            "type"           : "external",
+            "reference_type" : "external",
+            "source"         : label,
+            "url"            : url,
+            "url_status"     : url_status,
+            "page"           : None,
+            "heading"        : "ความรู้นอกเอกสาร",
+            "similarity"     : 1.0,
+        })
 
 
 # ─── Generate Answer (non-streaming) ─────────────────────────────────────────
@@ -618,8 +1055,9 @@ def generate_answer(
     """
     _init()
 
-    chunks  = search_chunks(question, top_k=top_k)
-    context = build_context(chunks)
+    chunks       = search_chunks(question, top_k=top_k)
+    weak_context = _best_similarity(chunks) < SIMILARITY_THRESHOLD
+    context      = build_context(chunks, weak_context=weak_context)
 
     # Build conversation history
     gemini_history = []
@@ -640,34 +1078,12 @@ def generate_answer(
     except Exception as e:
         err_str = str(e)
         if "429" in err_str or "Quota" in err_str:
-            answer = "❌ โควต้าการใช้งาน API เต็มชั่วคราว (Rate Limit) กรุณารอสักครู่ (ประมาณ 10–15 วินาที) แล้วลองใหม่อีกครั้งค่ะ"
+            answer = "[ระบบ] โควต้าการใช้งาน API เต็มชั่วคราว (Rate Limit) กรุณารอสักครู่ (ประมาณ 10-15 วินาที) แล้วลองใหม่อีกครั้ง"
         else:
-            answer = f"❌ เกิดข้อผิดพลาดในการสร้างคำตอบ: {err_str}"
+            answer = f"[ระบบ] เกิดข้อผิดพลาดในการสร้างคำตอบ: {err_str}"
 
-    # Extract unique sources
-    sources, seen = [], set()
-    for chunk in chunks:
-        key = f"{chunk['source']}_p{chunk['page']}"
-        if key not in seen:
-            seen.add(key)
-            sources.append({
-                "source"     : chunk["source"],
-                "page"       : chunk["page"],
-                "heading"    : chunk["heading"],
-                "similarity" : round(1 - chunk["distance"], 4),
-            })
-
-    # Parse external references from full_answer
-    import re
-    ext_refs = re.findall(r'\[Ref:\s*(?:ความรู้ทั่วไปทางการแพทย์|.*?)\s*[-—]\s*อ้างอิงจาก\s*([^\]]+)\]', answer)
-    for ref in set(ext_refs):
-        sources.append({
-            "type": "external",
-            "source": ref.strip(),
-            "page": None,
-            "heading": "ความรู้นอกเอกสาร",
-            "similarity": 1.0
-        })
+    sources, seen = _guideline_sources(chunks, weak_context)
+    _append_external_refs(sources, seen, answer)
 
     return {
         "answer"      : answer,
@@ -689,8 +1105,9 @@ async def generate_answer_stream(
     """
     _init()
 
-    chunks  = search_chunks(question, top_k=top_k)
-    context = build_context(chunks)
+    chunks       = search_chunks(question, top_k=top_k)
+    weak_context = _best_similarity(chunks) < SIMILARITY_THRESHOLD
+    context      = build_context(chunks, weak_context=weak_context)
 
     # Build conversation history
     gemini_history = []
@@ -704,18 +1121,8 @@ async def generate_answer_stream(
         context  = context,
     )
 
-    # Extract unique sources
-    sources, seen = [], set()
-    for chunk in chunks:
-        key = f"{chunk['source']}_p{chunk['page']}"
-        if key not in seen:
-            seen.add(key)
-            sources.append({
-                "source"     : chunk["source"],
-                "page"       : chunk["page"],
-                "heading"    : chunk["heading"],
-                "similarity" : round(1 - chunk["distance"], 4),
-            })
+    # แหล่งอ้างอิงจาก Guideline (กรองด้วย similarity จริง) — external refs เติมหลังได้คำตอบ
+    sources, seen = _guideline_sources(chunks, weak_context)
 
     try:
         chat     = _chat_model.start_chat(history=gemini_history)
@@ -740,18 +1147,8 @@ async def generate_answer_stream(
             prompt_tokens = response.usage_metadata.prompt_token_count
             completion_tokens = response.usage_metadata.candidates_token_count
 
-        # Parse external references from full_answer
-        import re
-        # Pattern matches [Ref: ความรู้ทั่วไปทางการแพทย์ - อ้างอิงจาก UpToDate]
-        ext_refs = re.findall(r'\[Ref:\s*(?:ความรู้ทั่วไปทางการแพทย์|.*?)\s*[-—]\s*อ้างอิงจาก\s*([^\]]+)\]', full_answer)
-        for ref in set(ext_refs):
-            sources.append({
-                "type": "external",
-                "source": ref.strip(),
-                "page": None,
-                "heading": "ความรู้นอกเอกสาร",
-                "similarity": 1.0
-            })
+        # \u0e40\u0e15\u0e34\u0e21\u0e2d\u0e49\u0e32\u0e07\u0e2d\u0e34\u0e07\u0e20\u0e32\u0e22\u0e19\u0e2d\u0e01 (URL) \u0e08\u0e32\u0e01\u0e02\u0e49\u0e2d\u0e04\u0e27\u0e32\u0e21\u0e04\u0e33\u0e15\u0e2d\u0e1a
+        _append_external_refs(sources, seen, full_answer)
 
         yield json.dumps({
             "type"        : "done",
@@ -767,9 +1164,9 @@ async def generate_answer_stream(
     except Exception as e:
         err_str = str(e)
         if "429" in err_str or "Quota" in err_str:
-            err_msg = "❌ โควต้าการใช้งาน API เต็มชั่วคราว (Rate Limit) กรุณารอสักครู่ (ประมาณ 10–15 วินาที) แล้วลองใหม่อีกครั้งค่ะ"
+            err_msg = "[ระบบ] โควต้าการใช้งาน API เต็มชั่วคราว (Rate Limit) กรุณารอสักครู่ (ประมาณ 10-15 วินาที) แล้วลองใหม่อีกครั้ง"
         else:
-            err_msg = f"❌ เกิดข้อผิดพลาดในการสร้างคำตอบ: {err_str}"
+            err_msg = f"[ระบบ] เกิดข้อผิดพลาดในการสร้างคำตอบ: {err_str}"
         yield json.dumps({"type": "error", "content": err_msg}) + "\n"
 
 
