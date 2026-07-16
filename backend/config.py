@@ -99,6 +99,19 @@ def chat_generation_config() -> dict:
     }
 
 
+# ─── Query rewriting (retrieval recall, latency-free) ────────────────────────
+# Static rule-based Thai→English medical-term expansion applied ONLY at
+# embed/retrieval time (patient-group inference + rerank still use the raw query
+# to preserve true intent). "static" = 0ms; "off" = disable.
+QUERY_REWRITE_MODE = (os.getenv("QUERY_REWRITE_MODE") or "static").strip().lower()
+
+# ─── Document-level retrieval expansion ──────────────────────────────────────
+# After top_k selection, pull sibling chunks so the LLM sees WHOLE tables and
+# WHOLE dose rows (not a single cell). Prevents "data exists but bot says none"
+# and truncated dose/duration. Capped so context does not explode.
+DOC_EXPANSION = (os.getenv("DOC_EXPANSION") or "true").strip().lower() in ("1", "true", "yes", "on")
+MAX_CONTEXT_CHUNKS = int(os.getenv("MAX_CONTEXT_CHUNKS") or 12)
+
 # ─── External URL verification (reference integrity) ─────────────────────────
 # Only external reference URLs that actually resolve should be shown to the user.
 # Verification runs only on out-of-scope answers (external refs are rare), so it
