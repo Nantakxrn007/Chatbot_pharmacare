@@ -68,7 +68,9 @@ MEMORY_COLLECTION_NAME = os.getenv("MEMORY_COLLECTION_NAME", "chat_memory")
 # ─── Retrieve / rerank knobs (env override) ──────────────────────────────────
 
 TOP_K = int(os.getenv("TOP_K") or 5)
-PER_SOURCE_TOP_K = int(os.getenv("PER_SOURCE_TOP_K") or 8)
+# ดึงต่อเล่มให้ลึกพอ (12) เพื่อให้ "ตารางขนาดยา/ทางเลือกแพ้ยา" ที่ embed ได้คะแนนต่ำ (มัก rank ~9-10)
+# ยังติดอยู่ใน candidate pool -> dose-table-aware pass (_inject_relevant_tables) ถึงจะดึงกลับมาได้
+PER_SOURCE_TOP_K = int(os.getenv("PER_SOURCE_TOP_K") or 12)
 MAX_HISTORY = int(os.getenv("MAX_HISTORY") or 10)
 # ต่ำกว่านี้ = ถือว่า context เกี่ยวข้องต่ำ/นอกขอบเขต (in-scope จริงวัดได้ ~0.69-0.79,
 # out-of-scope ~0.61) -> 0.66 ให้ margin กัน in-scope ก้ำกึ่งโดนตัดเป็น weak
@@ -77,8 +79,13 @@ CANDIDATE_MIN_SCORE = float(os.getenv("CANDIDATE_MIN_SCORE") or 0.55)
 # ต่ำกว่านี้ = ไม่แสดงเป็นแหล่งอ้างอิงให้ผู้ใช้ (กันอ้าง chunk ที่ไม่เกี่ยวข้อง)
 SOURCE_MIN_SIMILARITY = float(os.getenv("SOURCE_MIN_SIMILARITY") or 0.60)
 HYBRID_ALPHA = float(os.getenv("HYBRID_ALPHA") or 0.65)
-# llm | bm25 | vector — LLM uses CHAT_MODEL
-RERANK_MODE = (os.getenv("RERANK_MODE") or "llm").strip().lower()
+# llm | bm25 | vector
+# Default = "vector": LLM rerank costs 8-18s/query (a full extra API call) but selects the SAME
+# key clinical chunks as pure vector ordering — because doc-expansion (whole tables/dose rows) +
+# dose-table-aware injection already guarantee the antibiotic/dose tables reach context regardless
+# of rerank. Switching to vector removes that call -> ~8-17s faster per clinical answer, no quality
+# loss (validated opt7). Set RERANK_MODE=llm to restore the (slow) LLM reranker.
+RERANK_MODE = (os.getenv("RERANK_MODE") or "vector").strip().lower()
 RERANK_SNIPPET_CHARS = int(os.getenv("RERANK_SNIPPET_CHARS") or 420)
 
 # ─── Generation config (LLM answer tuning) ───────────────────────────────────
@@ -118,10 +125,27 @@ MAX_CONTEXT_CHUNKS = int(os.getenv("MAX_CONTEXT_CHUNKS") or 12)
 # does not affect the common in-guideline path.
 VERIFY_EXTERNAL_URLS = (os.getenv("VERIFY_EXTERNAL_URLS") or "true").strip().lower() in ("1", "true", "yes", "on")
 URL_VERIFY_TIMEOUT = float(os.getenv("URL_VERIFY_TIMEOUT") or 4.0)
+# Best-effort content match: fetch the external HTML page and confirm the answer's key terms
+# actually appear there; drop the URL on a clear mismatch (keep the source name). Only runs on
+# out-of-scope external refs (rare), HTML only (PDFs/unparseable -> trusted via reachability).
+VERIFY_EXTERNAL_CONTENT = (os.getenv("VERIFY_EXTERNAL_CONTENT") or "true").strip().lower() in ("1", "true", "yes", "on")
 
 # ─── Query embedding cache (latency) ─────────────────────────────────────────
 # Cache query embeddings so repeated/identical questions skip a network round-trip.
 EMBED_CACHE_SIZE = int(os.getenv("EMBED_CACHE_SIZE") or 256)
+
+# ─── Intent / retrieval gate (context-bleeding guard) ────────────────────────
+# Social messages (thanks/greeting/acknowledgement) must NOT trigger retrieval or
+# re-answer the previous clinical case. Rule-based (0ms) + conservative: anything
+# that looks clinical stays clinical. Disable with INTENT_GATE=off.
+INTENT_GATE = (os.getenv("INTENT_GATE") or "on").strip().lower() in ("1", "true", "yes", "on")
+
+# ─── Transient-error retry (LLM 503 / overloaded) ────────────────────────────
+# Gemini occasionally returns 503 "high demand". Retry a couple of times with a
+# short backoff before surfacing the error, so a transient spike does not fail
+# the whole answer. Kept small so the user never waits long.
+LLM_RETRY_MAX = int(os.getenv("LLM_RETRY_MAX") or 2)          # extra attempts after the first
+LLM_RETRY_BACKOFF = float(os.getenv("LLM_RETRY_BACKOFF") or 1.2)  # seconds, grows linearly
 
 # ─── Auth ────────────────────────────────────────────────────────────────────
 

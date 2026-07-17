@@ -315,12 +315,14 @@ async def chat_stream(req: ChatRequest, username: str = Depends(get_current_user
         full_answer = ""
         sources = []
         chunks_used = 0
-        
+        prompt_tokens = 0
+        completion_tokens = 0
+
         try:
             async for chunk in generate_answer_stream(req.message, combined_history, top_k=5):
                 # We yield exactly the data generated
                 yield f"data: {chunk}\n"
-                
+
                 # We need to capture the full answer and sources to save to DB
                 chunk_data = json.loads(chunk)
                 if chunk_data.get("type") == "done":
@@ -329,7 +331,7 @@ async def chat_stream(req: ChatRequest, username: str = Depends(get_current_user
                     usage = chunk_data.get("usage", {})
                     prompt_tokens = usage.get("prompt_tokens", 0)
                     completion_tokens = usage.get("completion_tokens", 0)
-                    
+
             sessions.add_message(session_id, username, "assistant", full_answer, sources=sources, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
             semantic_memory.add_to_memory(session_id, "assistant", full_answer, datetime.now().isoformat())
             
@@ -359,7 +361,9 @@ async def edit_last_message(req: EditMessageRequest, username: str = Depends(get
         
         full_answer = ""
         sources = []
-        
+        prompt_tokens = 0
+        completion_tokens = 0
+
         try:
             async for chunk in generate_answer_stream(req.message, combined_history, top_k=5):
                 yield f"data: {chunk}\n"
@@ -370,7 +374,7 @@ async def edit_last_message(req: EditMessageRequest, username: str = Depends(get
                     usage = chunk_data.get("usage", {})
                     prompt_tokens = usage.get("prompt_tokens", 0)
                     completion_tokens = usage.get("completion_tokens", 0)
-                    
+
             sessions.add_message(req.session_id, username, "assistant", full_answer, sources=sources, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
             semantic_memory.add_to_memory(req.session_id, "assistant", full_answer, datetime.now().isoformat())
             
@@ -423,7 +427,9 @@ async def regenerate(req: RegenerateRequest, username: str = Depends(get_current
         
         full_answer = ""
         sources = []
-        
+        prompt_tokens = 0
+        completion_tokens = 0
+
         try:
             async for chunk in generate_answer_stream(last_user_msg, combined_history, top_k=5):
                 yield f"data: {chunk}\n"
@@ -434,7 +440,7 @@ async def regenerate(req: RegenerateRequest, username: str = Depends(get_current
                     usage = chunk_data.get("usage", {})
                     prompt_tokens = usage.get("prompt_tokens", 0)
                     completion_tokens = usage.get("completion_tokens", 0)
-                    
+
             sessions.add_message(req.session_id, username, "assistant", full_answer, sources=sources, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
             semantic_memory.add_to_memory(req.session_id, "assistant", full_answer, datetime.now().isoformat())
             
