@@ -216,3 +216,25 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ─── Project-specific: generated / runtime artifacts (not needed in VCS) ─────
+# SQLite sidecar files (WAL/SHM/journal) — auto-regenerated, never commit
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# Qdrant local runtime lock (created when the store is opened)
+**/qdrant_db/**/*.lock
+
+# Verification / debug outputs generated while testing
+verify_rag_answers.txt
+verify*_out.txt
+scratchpad_*.txt
+_verify*.py
+
+# OS junk
+.DS_Store
+Thumbs.db

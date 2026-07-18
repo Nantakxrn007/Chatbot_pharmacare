@@ -3,10 +3,9 @@ Semantic Memory — จัดการความจำระยะยาวข
 ใช้ Qdrant client ตัวเดียวกับ rag_engine (singleton) เพื่อหลีกเลี่ยง lock conflict
 """
 import uuid
-import google.generativeai as genai
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 
-from backend.rag_engine import EMBED_MODEL, get_qdrant_client
+from backend.rag_engine import embed_query, get_qdrant_client
 
 COLLECTION_NAME = "chat_memory"
 
@@ -45,14 +44,10 @@ class SemanticMemory:
             return
             
         self._ensure_collection()
-        
+
         try:
-            result = genai.embed_content(
-                model=EMBED_MODEL,
-                content=content,
-            )
-            vector = result["embedding"]
-            
+            vector = embed_query(content)
+
             point_id = str(uuid.uuid4())
             
             get_qdrant_client().upsert(
@@ -83,14 +78,10 @@ class SemanticMemory:
             return []
             
         self._ensure_collection()
-        
+
         try:
-            result = genai.embed_content(
-                model=EMBED_MODEL,
-                content=query,
-            )
-            vector = result["embedding"]
-            
+            vector = embed_query(query)
+
             search_result = get_qdrant_client().query_points(
                 collection_name=COLLECTION_NAME,
                 query=vector,

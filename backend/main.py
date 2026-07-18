@@ -43,7 +43,9 @@ Run:
 """
 
 import csv
+import re
 import asyncio
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, Depends
@@ -57,18 +59,53 @@ from backend.session_manager import SessionManager
 from backend.semantic_memory import semantic_memory
 from backend.patient_summary import generate_patient_summary
 from backend.auth import verify_credentials, create_token, verify_token, get_user_display_name
-from backend.config import PROJECT_ROOT, FRONTEND_DIR, DATA_DIR, TEST_CASE_CSV, CHAT_HISTORY_DB
+from backend.config import (
+    PROJECT_ROOT, FRONTEND_DIR, DATA_DIR, TEST_CASE_CSV, CHAT_HISTORY_DB,
+    RECENT_WINDOW, COMPACT_THRESHOLD, COMPACT_BATCH, SUMMARY_BLOCK_MAX,
+    MEMORY_MIN_SIMILARITY, MEMORY_RECALL_TOP_K, MEMORY_MIN_SESSION_MESSAGES,
+)
 from datetime import datetime
 
 BASE_DIR = PROJECT_ROOT
 
 def prune_and_summarize(session_id: str, username: str):
-    count = sessions.get_message_count(session_id)
-    if count > 50:
-        oldest = sessions.get_oldest_messages(session_id, limit=30)
+    """
+    Compaction แบบ immutable block: เมื่อข้อความจริงเกิน threshold สรุปก้อนเก่าสุดเป็น
+    "[สรุปช่วงที่ N]" หนึ่งก้อน -- block เดิมไม่ถูกนำมาสรุปซ้ำ (กัน summary-of-summary drift)
+    """
+    count = sessions.get_raw_message_count(session_id)
+    if count > COMPACT_THRESHOLD:
+        oldest = sessions.get_oldest_messages(session_id, limit=COMPACT_BATCH)
         summary = summarize_history(oldest)
+        if not summary or summary.startswith("ไม่สามารถ"):
+            return
+        block_no = sessions.count_summary_blocks(session_id) + 1
         ids_to_delete = [m["id"] for m in oldest]
-        sessions.replace_messages_with_summary(session_id, ids_to_delete, summary)
+        sessions.replace_messages_with_summary(
+            session_id, ids_to_delete, f"[สรุปช่วงที่ {block_no} ของแชทนี้ (สรุปโดยระบบ)]\n{summary}"
+        )
+
+
+_TH_EN_TOKEN_RE = re.compile(r"[A-Za-z0-9]+|[฀-๿]{2,}")
+
+
+def _select_summary_blocks(blocks: list[dict], question: str, cap: int = SUMMARY_BLOCK_MAX) -> list[dict]:
+    """
+    เลือก compaction block ที่เกี่ยวข้องกับคำถาม (Memory Retriever แบบเบา):
+    block น้อยกว่า cap ส่งทั้งหมด; ถ้ามาก ให้คะแนนจาก token ทับซ้อนกับคำถาม + ความใหม่
+    """
+    if len(blocks) <= cap:
+        return blocks
+    q_tokens = set(_TH_EN_TOKEN_RE.findall((question or "").lower()))
+    scored = []
+    for idx, b in enumerate(blocks):
+        b_tokens = set(_TH_EN_TOKEN_RE.findall((b.get("content") or "").lower()))
+        overlap = len(q_tokens & b_tokens)
+        scored.append((overlap, idx, b))
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    chosen = scored[:cap]
+    chosen.sort(key=lambda x: x[1])          # คงลำดับเวลาเดิมตอนส่งเข้า LLM
+    return [b for _, _, b in chosen]
 
 # ─── Lifespan ────────────────────────────────────────────────────────────────
 
@@ -229,32 +266,57 @@ async def logout():
 
 # ─── Helper ──────────────────────────────────────────────────────────────────
 
-def _process_message_and_get_history(session_id: str, message: str, username: str) -> list[dict]:
-    # Save user message to Qdrant
-    now_str = datetime.now().isoformat()
-    semantic_memory.add_to_memory(session_id, "user", message, now_str)
+def _assemble_history(session_id: str, username: str, question: str) -> list[dict]:
+    """
+    ประกอบ history สำหรับ LLM ตามลำดับ:
+      1) compaction blocks (immutable) ที่เกี่ยวข้องกับคำถาม (สูงสุด SUMMARY_BLOCK_MAX)
+      2) semantic recall ของข้อความเก่าที่หลุด recent window (เฉพาะแชทยาว + similarity ถึงเกณฑ์)
+      3) recent window ล่าสุด (ไม่รวมข้อความ user ปัจจุบันที่เพิ่งบันทึก)
+    """
+    session = sessions.get_session(session_id, username)
+    messages = session.get("messages", []) if session else []
 
-    # Save user message
-    sessions.add_message(session_id, username, "user", message)
+    blocks = [m for m in messages if m["role"] == "system"]
+    normal = [m for m in messages if m["role"] != "system"]
+    recent = normal[-RECENT_WINDOW:]
 
-    # Summarize if needed
-    prune_and_summarize(session_id, username)
+    combined: list[dict] = []
+    seen_contents: set[str] = set(m["content"] for m in recent)
 
-    # Get history for context
-    recent_history = sessions.get_history(session_id, username, last_n=10)
-    
-    # Get semantic history
-    semantic_history = semantic_memory.search_memory(session_id, message, top_k=5)
-    
-    seen_contents = set(m["content"] for m in recent_history)
-    combined_history = []
-    for m in semantic_history:
-        if m["content"] not in seen_contents:
-            combined_history.append({"role": m["role"], "content": m["content"]})
+    for b in _select_summary_blocks(blocks, question):
+        combined.append({"role": "system", "content": b["content"]})
+        seen_contents.add(b["content"])
+
+    # semantic recall เฉพาะเมื่อ recent window ไม่ครอบคลุมทั้งแชทแล้ว (แชทสั้นไม่ต้องเสีย latency)
+    if len(normal) > MEMORY_MIN_SESSION_MESSAGES:
+        semantic_history = semantic_memory.search_memory(session_id, question, top_k=MEMORY_RECALL_TOP_K)
+        for m in semantic_history:
+            if m.get("similarity", 0.0) < MEMORY_MIN_SIMILARITY:
+                continue
+            if m["content"] in seen_contents:
+                continue
+            combined.append({"role": m["role"], "content": m["content"]})
             seen_contents.add(m["content"])
-            
-    combined_history.extend(recent_history[:-1])
-    return combined_history
+
+    combined.extend({"role": m["role"], "content": m["content"]} for m in recent[:-1])
+    return combined
+
+
+def _remember_async(session_id: str, role: str, content: str) -> None:
+    """เขียนลง semantic memory ใน background thread (embed คือ network call ~0.3-1s ไม่ควรบล็อกคำตอบ)"""
+    threading.Thread(
+        target=semantic_memory.add_to_memory,
+        args=(session_id, role, content, datetime.now().isoformat()),
+        daemon=True,
+    ).start()
+
+
+def _process_message_and_get_history(session_id: str, message: str, username: str) -> list[dict]:
+    _remember_async(session_id, "user", message)
+
+    sessions.add_message(session_id, username, "user", message)
+    prune_and_summarize(session_id, username)
+    return _assemble_history(session_id, username, message)
 
 
 # ─── Chat API ────────────────────────────────────────────────────────────────
@@ -289,7 +351,7 @@ async def chat(req: ChatRequest, username: str = Depends(get_current_user)):
         result["answer"],
         sources=result["sources"]
     )
-    semantic_memory.add_to_memory(session_id, "assistant", result["answer"], datetime.now().isoformat())
+    _remember_async(session_id, "assistant", result["answer"])
 
     return ChatResponse(
         session_id  = session_id,
@@ -315,12 +377,14 @@ async def chat_stream(req: ChatRequest, username: str = Depends(get_current_user
         full_answer = ""
         sources = []
         chunks_used = 0
-        
+        prompt_tokens = 0
+        completion_tokens = 0
+
         try:
             async for chunk in generate_answer_stream(req.message, combined_history, top_k=5):
                 # We yield exactly the data generated
                 yield f"data: {chunk}\n"
-                
+
                 # We need to capture the full answer and sources to save to DB
                 chunk_data = json.loads(chunk)
                 if chunk_data.get("type") == "done":
@@ -329,9 +393,9 @@ async def chat_stream(req: ChatRequest, username: str = Depends(get_current_user
                     usage = chunk_data.get("usage", {})
                     prompt_tokens = usage.get("prompt_tokens", 0)
                     completion_tokens = usage.get("completion_tokens", 0)
-                    
+
             sessions.add_message(session_id, username, "assistant", full_answer, sources=sources, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
-            semantic_memory.add_to_memory(session_id, "assistant", full_answer, datetime.now().isoformat())
+            _remember_async(session_id, "assistant", full_answer)
             
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
@@ -359,7 +423,9 @@ async def edit_last_message(req: EditMessageRequest, username: str = Depends(get
         
         full_answer = ""
         sources = []
-        
+        prompt_tokens = 0
+        completion_tokens = 0
+
         try:
             async for chunk in generate_answer_stream(req.message, combined_history, top_k=5):
                 yield f"data: {chunk}\n"
@@ -370,9 +436,9 @@ async def edit_last_message(req: EditMessageRequest, username: str = Depends(get
                     usage = chunk_data.get("usage", {})
                     prompt_tokens = usage.get("prompt_tokens", 0)
                     completion_tokens = usage.get("completion_tokens", 0)
-                    
+
             sessions.add_message(req.session_id, username, "assistant", full_answer, sources=sources, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
-            semantic_memory.add_to_memory(req.session_id, "assistant", full_answer, datetime.now().isoformat())
+            _remember_async(req.session_id, "assistant", full_answer)
             
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
@@ -405,25 +471,17 @@ async def regenerate(req: RegenerateRequest, username: str = Depends(get_current
     
     # Delete the last assistant message
     sessions.delete_last_assistant_message(req.session_id)
-    
-    # Get history for context
-    recent_history = sessions.get_history(req.session_id, username, last_n=10)
-    semantic_history = semantic_memory.search_memory(req.session_id, last_user_msg, top_k=5)
-    
-    seen_contents = set(m["content"] for m in recent_history)
-    combined_history = []
-    for m in semantic_history:
-        if m["content"] not in seen_contents:
-            combined_history.append({"role": m["role"], "content": m["content"]})
-            seen_contents.add(m["content"])
-    combined_history.extend(recent_history[:-1])
-    
+
+    combined_history = _assemble_history(req.session_id, username, last_user_msg)
+
     async def event_generator():
         yield f"data: {json.dumps({'type': 'session', 'session_id': req.session_id})}\n\n"
         
         full_answer = ""
         sources = []
-        
+        prompt_tokens = 0
+        completion_tokens = 0
+
         try:
             async for chunk in generate_answer_stream(last_user_msg, combined_history, top_k=5):
                 yield f"data: {chunk}\n"
@@ -434,9 +492,9 @@ async def regenerate(req: RegenerateRequest, username: str = Depends(get_current
                     usage = chunk_data.get("usage", {})
                     prompt_tokens = usage.get("prompt_tokens", 0)
                     completion_tokens = usage.get("completion_tokens", 0)
-                    
+
             sessions.add_message(req.session_id, username, "assistant", full_answer, sources=sources, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
-            semantic_memory.add_to_memory(req.session_id, "assistant", full_answer, datetime.now().isoformat())
+            _remember_async(req.session_id, "assistant", full_answer)
             
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
