@@ -93,16 +93,18 @@ CASES = [
     dict(id="O1",  # opt7: sore throat with ATB request, missing age/cough -> must ask history + Centor
          q="คนไข้เจ็บคอมาก กลืนน้ำลายเหมือนมีหนามแทง ไข้สูง 38.8 ทอนซิลโตบวมแดงมีจุดขาว แนะนำยาปฏิชีวนะให้หน่อย",
          must_contain=["Centor"], any_of=["อายุ", "มีไอ", "ซักประวัติ", "ข้อมูลเพิ่มเติม", "ต่อมน้ำเหลือง"]),
-    dict(id="O2",  # opt7: cold + ATB request adult -> Centor <2, viral, OTC + antihistamine
+    dict(id="O2",  # opt7 (6.1 policy): pure cold, no throat symptoms -> NO Centor needed;
+         # refuse ATB with viral reasoning + real symptomatic drug names
          q="ชายอายุ 32 ปี น้ำมูกใส ไอ จาม คัดจมูก 2 วัน ไม่มีไข้สูง ไม่เจ็บคอ ขอยาแก้หวัดและขอยาปฏิชีวนะด้วย",
-         must_contain=["Centor"], any_of=["ไม่จ่าย", "ไวรัส", "หวัด"]),
+         must_contain=["ไวรัส", "Paracetamol"], any_of=["ไม่จ่าย", "ไม่แนะนำ", "ไม่ควรจ่าย"]),
     dict(id="O3",  # opt7: out-of-scope back pain
          history=H_ADULT_PHARYNGITIS,
          q="เคสลุงป๊อด เจ็บหลังส่วนล่างนานกว่า 7 วัน คิดว่าไง",
          must_contain=["นอกขอบเขต"]),
-    dict(id="O4",  # opt7: child 8yo cold-like -> Centor shown + 7-day sinusitis watch
+    dict(id="O4",  # opt7 (6.1 policy): child cold-like, no throat complaint -> NO Centor needed;
+         # viral cold assessment + sinusitis watch window
          q="เด็กหญิงอายุ 8 ปี น้ำหนัก 27 kg น้ำมูกเหลือง ไอ คัดจมูก มา 4 วัน ไม่มีกดเจ็บที่ใบหน้า ไม่มีไข้สูง",
-         must_contain=["Centor"], any_of=["7 วัน", "ไซนัส"]),
+         must_contain=["หวัด"], any_of=["ไซนัส", "7 วัน", "10 วัน"]),
 ]
 
 

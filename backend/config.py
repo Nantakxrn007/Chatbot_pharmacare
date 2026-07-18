@@ -134,6 +134,28 @@ VERIFY_EXTERNAL_CONTENT = (os.getenv("VERIFY_EXTERNAL_CONTENT") or "true").strip
 # Cache query embeddings so repeated/identical questions skip a network round-trip.
 EMBED_CACHE_SIZE = int(os.getenv("EMBED_CACHE_SIZE") or 256)
 
+# ─── Conversation continuity (anti-drift context management) ─────────────────
+# Follow-up questions that name no disease/age drift toward whichever chunks are
+# semantically closest (often the wrong disease/age group). The case anchor
+# derives the active case (disease + age group) from recent history and scopes
+# retrieval + generation to it. Disable with CASE_ANCHOR=off.
+CASE_ANCHOR = (os.getenv("CASE_ANCHOR") or "on").strip().lower() in ("1", "true", "yes", "on")
+# Recent window: messages (not turns) sent verbatim to the LLM. Older content is
+# carried by immutable compaction blocks + semantic recall instead of raw dumps.
+RECENT_WINDOW = int(os.getenv("RECENT_WINDOW") or 10)
+# Compaction: summarize this many oldest raw messages into one immutable block
+# once the session exceeds COMPACT_THRESHOLD raw messages. Blocks are never
+# re-summarized (no summary-of-summary drift).
+COMPACT_THRESHOLD = int(os.getenv("COMPACT_THRESHOLD") or 50)
+COMPACT_BATCH = int(os.getenv("COMPACT_BATCH") or 30)
+# Max compaction blocks passed to the LLM per question (most relevant first).
+SUMMARY_BLOCK_MAX = int(os.getenv("SUMMARY_BLOCK_MAX") or 3)
+# Semantic recall of old raw messages: only when the session is long enough that
+# the recent window no longer covers everything, and only hits above this floor.
+MEMORY_MIN_SIMILARITY = float(os.getenv("MEMORY_MIN_SIMILARITY") or 0.55)
+MEMORY_RECALL_TOP_K = int(os.getenv("MEMORY_RECALL_TOP_K") or 3)
+MEMORY_MIN_SESSION_MESSAGES = int(os.getenv("MEMORY_MIN_SESSION_MESSAGES") or 12)
+
 # ─── Intent / retrieval gate (context-bleeding guard) ────────────────────────
 # Social messages (thanks/greeting/acknowledgement) must NOT trigger retrieval or
 # re-answer the previous clinical case. Rule-based (0ms) + conservative: anything

@@ -6,7 +6,7 @@ Session Manager — จัดการ chat sessions ลง SQLite
 import sqlite3
 import uuid
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 class SessionManager:
     """
@@ -136,7 +136,7 @@ class SessionManager:
                 return None
                 
             session = dict(row)
-            msg_rows = conn.execute("SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (session_id,)).fetchall()
+            msg_rows = conn.execute("SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC, id ASC", (session_id,)).fetchall()
             
             messages = []
             for m in msg_rows:
@@ -295,6 +295,24 @@ class SessionManager:
             row = conn.execute("SELECT COUNT(*) FROM messages WHERE session_id = ?", (session_id,)).fetchone()
             return row[0] if row else 0
 
+    def get_raw_message_count(self, session_id: str) -> int:
+        """จำนวนข้อความจริง (ไม่รวม summary block ที่ระบบสร้าง) — ใช้ตัดสินรอบ compaction"""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM messages WHERE session_id = ? AND role != 'system'",
+                (session_id,)
+            ).fetchone()
+            return row[0] if row else 0
+
+    def count_summary_blocks(self, session_id: str) -> int:
+        """จำนวน compaction block (immutable) ที่มีอยู่แล้วใน session"""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM messages WHERE session_id = ? AND role = 'system'",
+                (session_id,)
+            ).fetchone()
+            return row[0] if row else 0
+
     def get_global_token_summary(self, username: str, month: str = None) -> dict:
         """คำนวณ Token รวมทั้งหมดแยกตามแชท พร้อมสรุปผลรวม (กรองตามเดือนได้ เช่น '2023-10') สำหรับ user นี้"""
         with self._get_conn() as conn:
@@ -337,25 +355,42 @@ class SessionManager:
                 return {"total_prompt": 0, "total_completion": 0, "sessions": []}
 
     def get_oldest_messages(self, session_id: str, limit: int) -> list[dict]:
+        """ข้อความจริงที่เก่าที่สุด (ไม่รวม summary block) — block เป็น immutable ห้ามสรุปทับ"""
         with self._get_conn() as conn:
-            rows = conn.execute("SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?", (session_id, limit)).fetchall()
+            rows = conn.execute(
+                "SELECT * FROM messages WHERE session_id = ? AND role != 'system' ORDER BY timestamp ASC, id ASC LIMIT ?",
+                (session_id, limit)
+            ).fetchall()
             return [{"id": r["id"], "role": r["role"], "content": r["content"], "timestamp": r["timestamp"], "prompt_tokens": r["prompt_tokens"] if "prompt_tokens" in r.keys() else 0, "completion_tokens": r["completion_tokens"] if "completion_tokens" in r.keys() else 0} for r in rows]
 
     def replace_messages_with_summary(self, session_id: str, message_ids_to_delete: list[int], summary_content: str):
+        """
+        แทนที่ข้อความเก่าด้วย compaction block (role=system) หนึ่งก้อน
+        block ใหม่ถูกวางเวลาให้อยู่ "หลัง block เดิมทั้งหมด แต่ก่อนข้อความจริงที่เหลือ"
+        เพื่อให้ลำดับ block 1, 2, 3, ... คงที่และไม่สลับกับบทสนทนาปัจจุบัน
+        """
         if not message_ids_to_delete:
             return
         with self._get_conn() as conn:
-            # Delete old messages
             placeholders = ",".join("?" * len(message_ids_to_delete))
             conn.execute(f"DELETE FROM messages WHERE session_id = ? AND id IN ({placeholders})", [session_id] + message_ids_to_delete)
-            
-            # Find the timestamp of the earliest remaining message to place summary before it
-            row = conn.execute("SELECT timestamp FROM messages WHERE session_id = ? ORDER BY timestamp ASC LIMIT 1", (session_id,)).fetchone()
-            timestamp_for_summary = row["timestamp"] if row else datetime.now().isoformat()
-            
+
+            row = conn.execute(
+                "SELECT timestamp FROM messages WHERE session_id = ? AND role != 'system' ORDER BY timestamp ASC, id ASC LIMIT 1",
+                (session_id,)
+            ).fetchone()
+            if row:
+                try:
+                    ts = datetime.fromisoformat(row["timestamp"])
+                    timestamp_for_summary = (ts - timedelta(milliseconds=1)).isoformat()
+                except (ValueError, TypeError):
+                    timestamp_for_summary = row["timestamp"]
+            else:
+                timestamp_for_summary = datetime.now().isoformat()
+
             conn.execute(
                 "INSERT INTO messages (session_id, role, content, sources, timestamp, prompt_tokens, completion_tokens) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (session_id, "system", f"[สรุปเนื้อหาก่อนหน้า]\n{summary_content}", "[]", timestamp_for_summary, 0, 0)
+                (session_id, "system", summary_content, "[]", timestamp_for_summary, 0, 0)
             )
             conn.commit()
 

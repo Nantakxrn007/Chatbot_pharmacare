@@ -35,6 +35,7 @@ from backend.config import (
     MAX_CONTEXT_CHUNKS,
     CHUNKS_FILE,
     INTENT_GATE,
+    CASE_ANCHOR,
     LLM_RETRY_MAX,
     LLM_RETRY_BACKOFF,
     chat_generation_config,
@@ -175,10 +176,43 @@ _FILLER_RE = _re.compile(
 )
 
 
+# ข้อความ "ทดสอบระบบ/พิมพ์มั่ว" ตอนเปิดแชท เช่น "ทดสอบๆ", "sdfdsf", "g543f"
+# -> ตอบ canned ทันที (0 LLM call) ไม่ retrieve -- แก้ cold start ช้าโดยไม่เสี่ยงกับเคสจริง
+_TEST_WORD_RE = _re.compile(
+    r"^\W*(?:ทดสอบ|เทสๆ|เทสระบบ|ลองระบบ|ลองพิมพ์|test(?:ing)?\s*(?:ระบบ|system)?|ping)[\sๆ.!]*$",
+    _re.IGNORECASE,
+)
+_LATIN_TOKEN_RE = _re.compile(r"^[A-Za-z0-9]+$")
+_LATIN_VOWEL_RE = _re.compile(r"[aeiouAEIOU]")
+_DIGIT_LETTER_MIX_RE = _re.compile(r"(?:[A-Za-z]\d|\d[A-Za-z])")
+
+
+def _looks_gibberish(text: str) -> bool:
+    """True เมื่อข้อความสั้นดูเป็นการพิมพ์มั่ว/ทดสอบ (ไม่ใช่คำจริง ไม่ใช่เนื้อหาคลินิก)"""
+    if len(text) > 30:
+        return False
+    if _TEST_WORD_RE.match(text):
+        return True
+    tokens = text.split()
+    if not tokens or len(tokens) > 3:
+        return False
+    for tok in tokens:
+        if not _LATIN_TOKEN_RE.match(tok):
+            return False
+        # คำมั่วแบบละติน: ไม่มีสระเลย (sdfdsf) หรือปนตัวเลขกลางคำ (g543f)
+        has_letters = bool(_re.search(r"[A-Za-z]", tok))
+        if has_letters and _LATIN_VOWEL_RE.search(tok) and not _DIGIT_LETTER_MIX_RE.search(tok):
+            return False
+        if not has_letters:          # ตัวเลขล้วน อาจเป็นคำตอบ (เช่น อายุ) -> ไม่ตีเป็นมั่ว
+            return False
+    return True
+
+
 def classify_message_intent(query: str, history: list[dict] | None = None) -> str:
     """
     จำแนก intent ของข้อความล่าสุดแบบเร็ว (rule-based, 0ms) ก่อนตัดสินใจ retrieve
     คืนค่า:
+      - "noise"      : พิมพ์มั่ว/ทดสอบระบบ -> ตอบ canned ทันที (0 LLM call)
       - "smalltalk"  : ทักทาย/ขอบคุณ/ชม/รับทราบ/คั่นเวลา -> ข้าม retrieval ตอบสั้น
       - "meta_types" : ถามเชิงระบบว่าแยกประเภทคำถามอย่างไร -> อธิบายสรุป ไม่ต้อง retrieve
       - "clinical"   : คำถาม/เคสจริง -> เข้า RAG ตามปกติ (ค่า default ที่ปลอดภัย)
@@ -197,6 +231,8 @@ def classify_message_intent(query: str, history: list[dict] | None = None) -> st
     # คั่นเวลา/เกริ่นว่าจะถามเคส แต่ยังไม่มีข้อมูลผู้ป่วย -> อย่าให้ retrieve/แต่งเคส
     if len(text) <= 40 and _FILLER_RE.search(text) and not has_clinical:
         return "smalltalk"
+    if not has_clinical and _looks_gibberish(text):
+        return "noise"
     return "clinical"
 
 
@@ -219,6 +255,173 @@ _META_TYPES_INSTRUCTION = """ผู้ใช้ถามว่าระบบแ
 - เกณฑ์แยกหลักคือ "มีข้อมูลพอวินิจฉัยหรือไม่" และ "เป็นการเริ่มเคสใหม่หรือถามต่อเคสเดิม"
 - ผลลัพธ์: เลือกได้ว่าจะตอบเต็ม 5 ขั้น ตอบสั้นเฉพาะประเด็น หรือซักประวัติเพิ่มก่อน
 ยกตัวอย่างสั้นๆ ประกอบ 1 ตัวอย่าง แล้วจบ"""
+
+_NOISE_REPLY = (
+    "ระบบพร้อมใช้งานครับ พิมพ์คำถามหรือรายละเอียดเคสผู้ป่วยเข้ามาได้เลย "
+    "(อาการหลัก ระยะเวลา ไข้/อุณหภูมิ อายุ น้ำหนัก และประวัติแพ้ยา จะช่วยให้ประเมินได้แม่นยำขึ้นครับ)"
+)
+
+_COLD_GREETING_REPLY = (
+    "สวัสดีครับ ผม PharmaCare AI ผู้ช่วยเภสัชกรด้านโรคติดเชื้อทางเดินหายใจส่วนบน (URI) "
+    "และขนาดยา มีเคสผู้ป่วยหรือคำถามอะไรให้ช่วยดูไหมครับ"
+)
+
+
+# ─── Conversation case anchor (anti-drift for follow-up questions) ───────────
+# ปัญหา: คำถามต่อเนื่องที่ไม่ระบุโรค/อายุ (เช่น "ปัจจัยเสี่ยงมีอะไรบ้าง" หลังคุยเคสไซนัสผู้ใหญ่)
+# ถูก retrieve แบบโดดๆ -> ได้ chunk ของโรคอื่น/กลุ่มอายุอื่นที่ similarity สูงกว่า (เช่น AOM เด็ก)
+# -> LLM ตอบหลุดเคส (conversation drift)
+# แก้: สกัด "เคสที่กำลังปรึกษาอยู่" (โรค + กลุ่มอายุ) จากบทสนทนาแบบ rule-based (0ms)
+# แล้ว (1) เสริม retrieval query ด้วยศัพท์ของโรคนั้น (2) ล็อก patient_group ให้ตรงเคส
+# (3) แนบบรรทัดบริบทเคสให้ LLM ยึดตาม -- ใช้เฉพาะคำถามที่เป็น follow-up จริง (ไม่มีโรค/อายุของตัวเอง
+# และไม่ใช่การขึ้นเคสใหม่) เพื่อไม่กระทบเคสปกติ
+
+_DISEASE_ANCHOR_MAP: list[tuple[str, str, str]] = [
+    # (trigger regex, retrieval terms, display label)
+    (r"ไซนัส|rhinosinusitis|sinusitis|ABRS", "rhinosinusitis sinusitis ABRS ไซนัสอักเสบ",
+     "ไซนัสอักเสบ (rhinosinusitis)"),
+    (r"หูชั้นกลาง|otitis media|\bAOM\b|ปวดหู|น้ำหนวก", "acute otitis media AOM หูชั้นกลางอักเสบ",
+     "หูชั้นกลางอักเสบเฉียบพลัน (AOM)"),
+    (r"คออักเสบ|ทอนซิล|pharyngitis|tonsillitis|GABHS|strep", "pharyngitis tonsillitis GABHS คออักเสบ",
+     "คออักเสบ/ทอนซิลอักเสบ (pharyngitis)"),
+    (r"ฝาปิดกล่องเสียง|epiglottitis", "epiglottitis ฝาปิดกล่องเสียงอักเสบ",
+     "ฝาปิดกล่องเสียงอักเสบ (epiglottitis)"),
+    (r"ฝีหลังคอหอย|retropharyngeal", "retropharyngeal abscess ฝีหลังคอหอย",
+     "ฝีหลังคอหอย (retropharyngeal abscess)"),
+    (r"กล่องเสียง|เสียงแหบ|laryngitis|croup|ครูป", "laryngitis croup กล่องเสียงอักเสบ",
+     "กล่องเสียงอักเสบ (laryngitis/croup)"),
+    (r"ไข้หวัดใหญ่|influenza", "influenza ไข้หวัดใหญ่", "ไข้หวัดใหญ่ (influenza)"),
+    (r"หวัด|common cold|น้ำมูก", "common cold viral URI โรคหวัด", "โรคหวัด (common cold)"),
+]
+
+# การขึ้นเคสใหม่ -> ห้าม anchor เด็ดขาด (กัน bleeding ย้อนทาง)
+_NEW_CASE_RE = _re.compile(
+    r"(อีกเคส|เคสใหม่|เคสถัดไป|เคสต่อไป|คนไข้อีกคน|คนไข้ใหม่|ผู้ป่วยอีกราย|ผู้ป่วยใหม่|ผู้ป่วยรายใหม่|อีกราย|อีกคน)",
+    _re.IGNORECASE,
+)
+
+# อาการดิบที่บ่งว่าเป็น "คำบรรยายเคส" (ไม่ใช่คำถามต่อยอดสั้นๆ) -> มีชุดอาการของตัวเอง ไม่ต้องเสริมโรคเดิม
+_SYMPTOM_TOKEN_RE = _re.compile(
+    r"(ไข้|ไอ|เจ็บคอ|น้ำมูก|คัดจมูก|ปวดหู|ปวดหัว|ปวดหน้า|ปวดโหนก|เสมหะ|หนอง|ผื่น|หายใจ|กลืน|เสียงแหบ|อาเจียน|ถ่ายเหลว)",
+)
+
+_AGE_SIGNAL_RE = _re.compile(r"(\d+\s*(?:ขวบ|เดือน|ปี)|อายุ|ผู้ใหญ่|เด็ก|ทารก|ลูก|adult|pediatric|child)", _re.IGNORECASE)
+
+_GROUP_ANCHOR_TERMS = {"adult": "ผู้ใหญ่ adult", "pediatric": "เด็ก pediatric child"}
+_GROUP_ANCHOR_LABEL = {"adult": "ผู้ใหญ่", "pediatric": "เด็ก"}
+
+
+def _match_diseases(text: str) -> list[tuple[str, str]]:
+    """คืนรายการ (terms, label) ของโรคที่พบในข้อความ ตามลำดับความจำเพาะของ map"""
+    found: list[tuple[str, str]] = []
+    for pattern, terms, label in _DISEASE_ANCHOR_MAP:
+        if _re.search(pattern, text, _re.IGNORECASE):
+            found.append((terms, label))
+    return found
+
+
+def derive_case_anchor(history: list[dict] | None) -> dict | None:
+    """
+    หา "เคสที่กำลังปรึกษาอยู่" จากบทสนทนา (สแกนจากล่าสุดขึ้นไป รวม summary block)
+    คืน {"terms", "label", "group", "detail"} หรือ None ถ้าไม่พบโรคเลย
+    """
+    if not history:
+        return None
+
+    diseases: list[tuple[str, str]] = []
+    group: str | None = None
+    detail: str | None = None
+
+    for msg in reversed(history):
+        content = msg.get("content") or ""
+        if not content:
+            continue
+        # ผู้ใช้ขึ้นเคสใหม่โดยไม่ระบุโรค -> สิ่งที่เก่ากว่านั้นคือคนละเคส หยุดสแกน
+        if not diseases and msg.get("role") == "user" and _NEW_CASE_RE.search(content) \
+                and not _match_diseases(content):
+            break
+        # กลุ่มอายุ/รายละเอียด: อ่านจากข้อความผู้ใช้หรือ summary block เท่านั้น
+        # (คำตอบ assistant มักอ้างถึงช่วงวัยอื่นใน guideline -> เสี่ยงเดากลุ่มผิด)
+        is_factual = msg.get("role") in ("user", "system")
+        if not diseases:
+            hits = _match_diseases(content)
+            if hits:
+                diseases = hits[:2]
+                if is_factual:
+                    m = _re.search(
+                        r"(อายุ\s*\d+\s*(?:ขวบ|เดือน|ปี)|\d+\s*(?:ขวบ|เดือน)|น้ำหนัก\s*\d+(?:\.\d+)?\s*(?:kg|กก|กิโล))",
+                        content, _re.IGNORECASE)
+                    if m:
+                        detail = m.group(1)
+                    g = infer_patient_group_from_query(content)
+                    if g in ("adult", "pediatric"):
+                        group = g
+                continue
+        if diseases and group is None and is_factual:
+            g = infer_patient_group_from_query(content)
+            if g in ("adult", "pediatric"):
+                group = g
+            if detail is None:
+                m = _re.search(
+                    r"(อายุ\s*\d+\s*(?:ขวบ|เดือน|ปี)|\d+\s*(?:ขวบ|เดือน)|น้ำหนัก\s*\d+(?:\.\d+)?\s*(?:kg|กก|กิโล))",
+                    content, _re.IGNORECASE)
+                if m:
+                    detail = m.group(1)
+        if diseases and group is not None:
+            break
+
+    if not diseases:
+        return None
+    return {
+        "terms": " ".join(t for t, _ in diseases),
+        "label": " / ".join(l for _, l in diseases),
+        "group": group,
+        "detail": detail,
+    }
+
+
+def resolve_case_context(question: str, history: list[dict] | None) -> tuple[str, str | None, str]:
+    """
+    ตัดสินใจว่าคำถามนี้ต้องยึดเคสเดิมหรือไม่ แล้วคืน
+      (retrieval_query, patient_group_override_or_None, anchor_note_for_prompt)
+    เงื่อนไข anchor: เป็น follow-up จริง (ไม่ขึ้นเคสใหม่ ไม่มีชุดอาการของตัวเอง) และ derive เคสเดิมได้
+    """
+    if not CASE_ANCHOR or not history:
+        return question, None, ""
+
+    text = (question or "").strip()
+    if _NEW_CASE_RE.search(text):
+        return question, None, ""
+
+    own_diseases = _match_diseases(text)
+    symptom_hits = len(set(_SYMPTOM_TOKEN_RE.findall(text)))
+    # มีโรคของตัวเอง หรือบรรยายอาการหลายอย่าง = เคส/คำถามที่ยืนเองได้ -> ไม่ต้อง anchor โรค
+    if own_diseases or symptom_hits >= 2:
+        return question, None, ""
+
+    anchor = derive_case_anchor(history)
+    if not anchor:
+        return question, None, ""
+
+    has_own_age = bool(_AGE_SIGNAL_RE.search(text))
+    group = None if has_own_age else anchor.get("group")
+
+    extra_terms = anchor["terms"]
+    if group and group in _GROUP_ANCHOR_TERMS:
+        extra_terms += " " + _GROUP_ANCHOR_TERMS[group]
+    retrieval_query = f"{text} (บริบทเคสต่อเนื่อง: {extra_terms})"
+
+    note_bits = [f"โรค/ภาวะ: {anchor['label']}"]
+    if anchor.get("group"):
+        note_bits.append(f"กลุ่มผู้ป่วย: {_GROUP_ANCHOR_LABEL.get(anchor['group'], anchor['group'])}")
+    if anchor.get("detail"):
+        note_bits.append(f"ข้อมูลที่ระบุไว้: {anchor['detail']}")
+    anchor_note = (
+        "\n**บริบทเคสที่กำลังปรึกษา (ระบบสกัดจากบทสนทนา):** " + " | ".join(note_bits)
+        + "\nคำถามนี้เป็นคำถามต่อเนื่องของเคสข้างต้น ให้ตอบภายใต้โรค/ภาวะและกลุ่มอายุนี้เท่านั้น "
+        "ห้ามสลับไปโรคอื่นหรือกลุ่มอายุอื่นตามเนื้อหา Context ที่ไม่ตรงเคส"
+    )
+    return retrieval_query, group, anchor_note
 
 
 # ─── Transient-error retry (Gemini 503 / overloaded) ─────────────────────────
@@ -390,6 +593,24 @@ Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช
         ถ้าข้อใดไม่ผ่าน ให้แก้ก่อนส่ง
 
 ====================================================================
+ความต่อเนื่องของบทสนทนา (CONVERSATION CONTINUITY -- กัน Conversation Drift)
+====================================================================
+- **คำถามต่อเนื่อง (follow-up) ที่ไม่ได้ระบุโรคหรือผู้ป่วยใหม่ = ถามถึง "เคสที่กำลังปรึกษาอยู่" เสมอ**
+  (โรคเดิม + กลุ่มอายุเดิม) เช่น หลังคุยเคสไซนัสอักเสบผู้ใหญ่ 50 ปี แล้วผู้ใช้ถาม "ปัจจัยเสี่ยงที่ทำให้เกิดโรค
+  มีอะไรบ้าง" = ปัจจัยเสี่ยงของ "ไซนัสอักเสบในผู้ใหญ่" เท่านั้น -- **ห้ามเปลี่ยนไปตอบโรคอื่นหรือกลุ่มอายุอื่น
+  เพียงเพราะ Context ที่ดึงมามีเนื้อหาโรคอื่นที่ใกล้เคียง** (เช่น ห้ามตอบปัจจัยเสี่ยง AOM ในเด็ก ทั้งที่เคสคือ
+  ABRS ผู้ใหญ่)
+- ก่อนตอบ follow-up ให้ระบุในใจก่อนว่า "เคสปัจจุบันคือโรคอะไร กลุ่มอายุใด" (จากบทสนทนา และบรรทัด
+  "บริบทเคสที่กำลังปรึกษา" ถ้ามี) แล้วคัดใช้เฉพาะ chunk ที่ตรงทั้งโรคและกลุ่มอายุนั้น -- chunk ที่ไม่ตรง
+  ห้ามใช้และห้ามอ้าง แม้ similarity จะสูง
+- ถ้า Context ที่ให้มาไม่มีเนื้อหาของโรค/กลุ่มอายุของเคสปัจจุบันจริงๆ ให้บอกตรงๆ ว่าคู่มือในระบบไม่มีส่วนนั้น
+  (และเสริมความรู้นอกคู่มือแบบแยกส่วนตามกฎอ้างอิงข้อ 4 ได้) -- **ห้ามหยิบเนื้อหาโรคอื่นมาตอบแทนเด็ดขาด**
+- เปลี่ยนเคสเฉพาะเมื่อผู้ใช้ระบุชัด (เช่น "อีกเคส", "เคสใหม่", "คนไข้อีกคน" หรือให้ชุดอาการ/ผู้ป่วยใหม่)
+  -- เมื่อขึ้นเคสใหม่ ให้ทิ้งพารามิเตอร์ของเคสก่อนหน้าทั้งหมดตามกฎ Hallucinate ข้อ 6
+- ถ้ามี "[สรุปช่วงที่ N]" ในประวัติ = บทสรุปช่วงเก่าของแชทนี้ที่ระบบสรุปให้ ใช้เป็นข้อเท็จจริงอ้างอิงได้
+  แต่เคสที่กำลังคุย "ล่าสุด" สำคัญกว่าเนื้อหาในสรุปเก่าเสมอ
+
+====================================================================
 การประเมิน Modified Centor / McIsaac (สำหรับเคสเจ็บคอ/pharyngitis)
 ====================================================================
 **ใช้เฉพาะเคสที่เกี่ยวข้องจริงเท่านั้น** คือเคสที่มีอาการทางคอ/เจ็บคอ/คออักเสบ/สงสัย pharyngitis
@@ -483,6 +704,10 @@ Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช
         - ทางเลือกกรณีแพ้ยา: ชื่อยา + Dose + Duration (เลือกให้เหมาะกับชนิดการแพ้) -- ยกมาให้ครบทุกตัวเช่นกัน
         - **เด็ก (<18 ปี): ขนาดยาปฏิชีวนะต้องยึดตาราง "URI เด็ก 2562" เป็นหลัก** (เช่น pharyngitis:
           Amoxicillin 50 มก./กก./วัน max 1 กรัม แบ่งวันละ 1-2 ครั้ง 10 วัน) ห้ามใช้ขนาดของ AAFP (ผู้ใหญ่) แทน
+        - **เคสเด็ก -- อ้างสองเล่มเมื่อมีทั้งคู่ (สำคัญมาก):** ถ้า Context มีเนื้อหาการรักษา/ขนาดยาของโรคเดียวกัน
+          ทั้งจาก "URI เด็ก 2562" และ "AAFP (ส่วนเนื้อหาเด็ก เช่น ตาราง TABLE 4 หน้า 6 พร้อม footnote
+          ระยะเวลาตามอายุใต้ตาราง)" -> **ต้องนำมาแสดงและอ้าง [Ref] ทั้งสองเล่มเสมอ แม้คำแนะนำจะตรงกัน**
+          (เปรียบเทียบเป็นตาราง markdown ตามกฎอ้างอิงข้อ 6) -- ห้ามหยิบเล่มเดียวแล้วละอีกเล่มที่มีข้อมูลอยู่จริง
         - **ถ้าตารางใน Context มีขนาด mg/kg/day และทางเลือกกรณีแพ้ยา ต้องแสดงให้ครบเสมอ**
           (first-line + ทางเลือก non-type1 + ทางเลือก type1 hypersensitivity ตามที่ตารางมี) --
           การถามน้ำหนักตัวมีไว้เพื่อ "แปลงเป็นปริมาตร mL" เท่านั้น **ไม่ใช่เหตุผลที่จะละขนาด mg/kg/day
@@ -507,9 +732,26 @@ Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช
      - แสดงขนาดยาเป็นช่วง Min-Max เต็มช่วงตาม Guideline เสมอ
      - ระบุระยะเวลารักษาให้จำเพาะกับผู้ป่วย (เช่น เด็ก <2 ปี หรืออาการรุนแรง = 10 วัน;
        เด็ก 2-5 ปี อาการ mild-moderate = 7 วัน) เมื่อ Guideline ระบุเงื่อนไขไว้
-     - ยาน้ำ (Drug Calculator): ถ้าทราบหรือผู้ใช้ระบุความแรง (mg/mL) ให้คำนวณปริมาตรต่อครั้งเป็น mL
-       สูตร: ปริมาตร (mL) = ขนาดยาต่อครั้ง (mg) / ความแรง (mg ต่อ mL)
-       ถ้ายังไม่ทราบความแรง ให้ถามความแรงที่มีในร้าน แล้วแสดงตัวอย่างการคำนวณเป็น mL
+     - **ยาน้ำ (Drug Calculator) -- แสดงการคำนวณ mL แบบ step-by-step เสมอ (ห้ามโยนตัวเลขลอยๆ):**
+       (1) ขนาดต่อวัน: [Min]-[Max] mg/kg/day x น้ำหนัก [W] kg = [A]-[B] mg/day [Ref ของขนาด]
+       (2) ขนาดต่อครั้ง: [A]-[B] mg/day ÷ [N] ครั้ง = ครั้งละ [C]-[D] mg
+       (3) ปริมาตรต่อครั้ง: [C]-[D] mg ÷ ความแรง [S] mg/5 mL = ครั้งละ [C x 5/S]-[D x 5/S] mL (ทั้ง Min-Max)
+           -- หน่วยปริมาตรเขียนเป็น "mL" เสมอ (ไม่ใช้ "มล." หรือ "ซีซี" ในผลการคำนวณ)
+       กติกาเรื่อง "ความแรง (concentration)":
+       - ใช้ความแรงที่ผู้ใช้ระบุ หรือความแรงที่มีใน Context (พร้อม [Ref]) ก่อนเสมอ
+       - ถ้าไม่มีทั้งสอง ให้ยกความแรงที่มีจำหน่ายทั่วไปมาเป็น "ตัวอย่างการคำนวณ" ได้ แต่ต้อง (ก) ระบุชัดว่า
+         เป็นตัวอย่าง (ข) บอกเหตุผลที่เลือกความแรงนั้น (เช่น เป็นความแรงมาตรฐานที่พบบ่อยของยานี้)
+         (ค) เชิญผู้ใช้ยืนยันความแรงจริงบนฉลากยาในร้านเพื่อคำนวณซ้ำ -- ห้ามหยิบตัวเลขความแรงมาลอยๆ
+           โดยไม่บอกที่มา
+       - ถ้าผู้ใช้เปลี่ยนน้ำหนัก/อายุ/ความแรง/ความถี่ในคำถามต่อมา -> **คำนวณใหม่ทั้งสาย (1)-(3) ด้วยค่าล่าสุด**
+         ห้ามใช้ mL เดิม และตรวจทานผลคูณ/ผลหารก่อนส่งทุกครั้ง
+     - **สรุปขนาดยา (ปิดท้ายทุกคำตอบที่มีการคำนวณขนาดยา):** สรุปเป็นตาราง markdown สั้นๆ ให้เห็นครบใน
+       บรรทัดเดียวต่อยา เช่น
+       | ยา | ขนาดตาม Guideline | คิดเป็นของผู้ป่วยรายนี้ | ปริมาตร (ยาน้ำ) | ระยะเวลา |
+       |---|---|---|---|---|
+       | Amoxicillin | 80-90 mg/kg/day แบ่ง 2 ครั้ง | 1,200-1,350 mg/day (ครั้งละ 600-675 mg) | ครั้งละ 12.5-14.1 mL (ที่ 240 mg/5 mL) | 10 วัน |
+       คอลัมน์ไหนไม่เกี่ยว (เช่น ไม่ใช่ยาน้ำ) ให้ใส่ "-" -- ตารางนี้เป็น "สรุปซ้ำ" ของตัวเลขที่คำนวณไว้ข้างบน
+       ต้องตรงกันทุกตัว ห้ามคำนวณใหม่แล้วได้คนละค่า
 
   **4. คำแนะนำดูแลตัวเอง**
      ดูแลตัวเอง + ป้องกันการแพร่เชื้อ
@@ -556,7 +798,9 @@ Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช
    - มีไข้หรือไม่ วัดได้เท่าไร -- เพื่อประเมินความรุนแรงและเข้าเกณฑ์วินิจฉัย
    - ประวัติแพ้ยา และแพ้แล้วมีอาการอย่างไร (ผื่น/บวม/แน่นหน้าอก) -- เพื่อเลือกยาทดแทนที่ปลอดภัย
    - น้ำหนักตัว (เด็ก) -- เพื่อคำนวณขนาดยาตามน้ำหนักอย่างปลอดภัย
-   - อายุ -- เพื่อเลือก Guideline ให้ถูกเล่มและตรวจข้อห้ามใช้ตามอายุ
+   - อายุ -- เพื่อเลือกคำแนะนำ/ขนาดยาให้ตรงกลุ่มอายุ และตรวจข้อห้ามใช้ตามอายุ
+     (หมายเหตุการใช้คำ: อย่าสื่อว่า "AAFP มีเฉพาะผู้ใหญ่" -- AAFP มีเนื้อหาเด็กด้วย ให้พูดว่า
+     เด็กยึด URI เด็ก 2562 เป็นหลักร่วมกับส่วนเนื้อหาเด็กของ AAFP)
 ถามเฉพาะสิ่งที่ขาดจริงๆ (ถ้าผู้ใช้ให้อายุมาแล้วไม่ต้องถามอายุซ้ำ) -- ไม่ต้องยาว เอาหลักๆ ที่จำเป็นต่อการตัดสินใจ
 
 ### ประเภท 5: คำขอไม่เหมาะสม / เคสมีข้อจำกัด (จัดการโดย "ยังคงให้การดูแลที่ถูกต้อง")
@@ -675,7 +919,20 @@ Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช
      เหมาะกับเคสนี้กว่าเพราะอะไร (เภสัชกรจะได้เห็นทั้งคู่และใช้วิจารณญาณต่อได้)
    - ถ้าเป็นเรื่องความปลอดภัย (เช่น ขนาดยาสูงสุด/ข้อห้ามในเด็ก) เมื่อไม่แน่ใจให้โน้มไปทางที่ปลอดภัยกว่า
      (conservative) พร้อมบอกเหตุผล
-   - ถ้าทั้งสองเล่มพูดถึงเรื่องเดียวกันโดยไม่ขัดกัน ให้อ้างทั้งสองเสริมกัน ไม่เลือกเล่มเดียวแล้วละอีกเล่ม
+   - **หัวข้อ/ยาเดียวกันมีในทั้งสองเล่ม (สำหรับกลุ่มอายุเดียวกัน) แม้คำแนะนำ "ตรงกัน" ไม่ขัดแย้ง -> ก็ต้อง
+     อ้างทั้งสองเล่มเสมอ** ไม่เลือกเล่มเดียวแล้วละอีกเล่ม -- เพื่อให้เภสัชกรมั่นใจว่าระบบเห็นครบทั้งสองแหล่ง
+     ไม่ใช่เห็นแค่เล่มเดียวแล้วตอบ (เช่น การรักษา AOM ในเด็ก: อ้างทั้ง [Ref: URI เด็ก 2562, หน้า X] และ
+     [Ref: AAFP, หน้า 6] ตาราง TABLE 4) และ**อย่าลืมเงื่อนไขระยะเวลาใต้ตาราง (footnote)** ของ AAFP
+     TABLE 4 เช่น เด็ก <2 ปี หรืออาการรุนแรง = 10 วัน, 2-5 ปี mild-moderate = 7 วัน, >=6 ปี mild-moderate
+     = 5-7 วัน (อ่านจากตารางใน Context จริง อย่าท่องจากตรงนี้) -- นำมาระบุให้จำเพาะกับผู้ป่วยรายนี้
+   - **การนำเสนอเปรียบเทียบหลาย Guideline: ใช้ตาราง markdown** เมื่อมีตั้งแต่ 2 แหล่งที่พูดเรื่องเดียวกัน
+     เพื่อให้เภสัชกรเทียบและตัดสินใจได้เร็ว รูปแบบแนะนำ:
+     | ประเด็น | URI เด็ก 2562 | AAFP 2022 |
+     |---|---|---|
+     | ยา first-line | ___ [Ref: URI เด็ก 2562, หน้า X] | ___ [Ref: AAFP, หน้า Y] |
+     | ขนาดยา (คำนวณตามผู้ป่วยรายนี้) | ___ | ___ |
+     | ระยะเวลา | ___ | ___ |
+     แล้วตามด้วยข้อสรุป/ข้อเสนอแนะว่าแนวทางใดเหมาะกับเคสนี้กว่าเพราะอะไร (เสนอให้พิจารณา ไม่ฟันธงแทน)
 
 7. ห้ามตอบว่า "ไม่มีข้อมูลใน Guideline" ถ้าข้อมูลนั้นปรากฏอยู่ใน Context จริง
    - ตรวจ Context ทุก chunk (รวม dose table และหัวข้อ symptomatic) ก่อนสรุปว่าไม่มี
@@ -724,22 +981,23 @@ Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช
 # ─── User Message Template ───────────────────────────────────────────────────
 
 USER_MESSAGE_TEMPLATE = """**คำถามปัจจุบัน:** {question}
-
+{anchor_note}
 ====================================================================
 **Context จากฐานข้อมูล:**
 
 {context}
 ====================================================================
 **คำสั่ง:**
-1. วิเคราะห์และจำแนกประเภทคำถาม (ประเภท 1-6) โดยประเมินร่วมกับประวัติสนทนา (หากมี) -- ถ้าเป็นการถามต่อในเคสเดิม ตอบเฉพาะประเด็นใหม่ ไม่ตอบซ้ำทั้งหมด
-2. ตรวจสอบอายุและน้ำหนักตัวผู้ป่วยเพื่อเลือก Guideline ให้ถูกเล่ม (AAFP สำหรับผู้ใหญ่, URI เด็ก 2562 สำหรับเด็ก) -- ห้ามอ้างข้ามกลุ่มอายุเด็ดขาด
+1. วิเคราะห์และจำแนกประเภทคำถาม (ประเภท 1-6) โดยประเมินร่วมกับประวัติสนทนา (หากมี) -- ถ้าเป็นการถามต่อในเคสเดิม ตอบเฉพาะประเด็นใหม่ ไม่ตอบซ้ำทั้งหมด และต้องอยู่ในโรค+กลุ่มอายุของเคสเดิม
+2. ตรวจสอบอายุและน้ำหนักตัวผู้ป่วยเพื่อเลือก Guideline ให้ตรงกลุ่มอายุ (เด็กยึด URI เด็ก 2562 เป็นหลัก ร่วมกับส่วนเนื้อหาเด็กของ AAFP, ผู้ใหญ่ยึด AAFP) -- ห้ามนำขนาดยา/คำแนะนำข้ามกลุ่มอายุเด็ดขาด
 3. ตรวจสอบว่าข้อมูลใน Context ที่จะใช้ ตรงกับโรค ช่วงวัย และหัวข้อที่ถาม -- ถ้าไม่ตรงห้ามนำมาอ้างอิง
 4. ขนาดยาและระยะเวลารักษาต้องมาจาก Context เท่านั้น ห้ามแต่งตัวเลขเอง แสดงเป็นช่วง Min-Max และคำนวณตามน้ำหนัก/อายุของผู้ป่วยรายนี้
 5. ถ้าเป็น follow-up ที่เปลี่ยนอายุ/น้ำหนัก/กลุ่มผู้ป่วย ต้องคำนวณขนาดยาใหม่ให้ตรงพารามิเตอร์ใหม่ ห้ามคัดลอกตัวเลขจากคำตอบก่อนหน้า
 6. ห้ามเติมข้อมูลที่ผู้ใช้ไม่ได้ให้ (โดยเฉพาะประวัติแพ้ยา) ถ้าข้อมูลจำเป็นขาดหาย ให้ซักประวัติพร้อมเหตุผลก่อน
 7. เลือกรูปแบบคำตอบที่เหมาะสมตาม SYSTEM INSTRUCTION อย่างเคร่งครัด
 8. ทุกคำตอบเชิงคลินิกต้องอ้างอิง [Ref: ...] โดยดึงเลขหน้าจาก Context header จริงเท่านั้น ห้ามเดา
-9. แยกชัดว่าข้อมูลใดมาจาก Guideline (Context) และข้อมูลใดเป็นความรู้ทั่วไป -- ถ้าเป็นข้อมูลนอกคู่มือต้องแนบ URL ที่ชี้ถึงเอกสาร/หน้าจริง ไม่ใช่หน้าแรกของเว็บไซต์"""
+9. แยกชัดว่าข้อมูลใดมาจาก Guideline (Context) และข้อมูลใดเป็นความรู้ทั่วไป -- ถ้าเป็นข้อมูลนอกคู่มือต้องแนบ URL ที่ชี้ถึงเอกสาร/หน้าจริง ไม่ใช่หน้าแรกของเว็บไซต์
+10. ถ้า Context มีเนื้อหาเรื่องเดียวกันสำหรับกลุ่มอายุเดียวกันจากทั้ง "URI เด็ก 2562" และ "AAFP" -- ต้องใช้และอ้าง [Ref] ทั้งสองเล่ม (แม้คำแนะนำตรงกัน) พร้อมแสดงเปรียบเทียบ ห้ามเลือกเล่มเดียว"""
 
 # ─── Initialize ──────────────────────────────────────────────────────────────
 
@@ -1386,13 +1644,22 @@ def retrieve_chunks(
     return _expand_document_context(selected)
 
 
-def search_chunks(query: str, top_k: int = TOP_K) -> list[dict]:
+def search_chunks(
+    query: str,
+    top_k: int = TOP_K,
+    *,
+    patient_group: str | None = None,
+    retrieval_query: str | None = None,
+) -> list[dict]:
     """
     ค้นหา chunks จาก Qdrant production:
-      1) filter patient_group (inclusive)
+      1) filter patient_group (inclusive) -- override ได้จาก case anchor
       2) ดึงแยกเล่ม AAFP / URI / Dose
       3) rerank (default: LLM; fallback BM25; หรือ RERANK_MODE=vector)
       4) เลือก top_k พร้อม source coverage
+
+    retrieval_query: ข้อความที่ใช้ embed/ค้นจริง (เช่น query ที่เสริมบริบทเคสต่อเนื่อง)
+    ถ้าไม่ระบุ ใช้ query เดิม
 
     Returns list of {content, source, page, heading, distance, ...}
     """
@@ -1410,8 +1677,9 @@ def search_chunks(query: str, top_k: int = TOP_K) -> list[dict]:
     return retrieve_chunks(
         _client,
         COLLECTION_NAME,
-        query,
+        retrieval_query or query,
         top_k=top_k,
+        patient_group=patient_group,
     )
 
 
@@ -1911,11 +2179,27 @@ def _light_reply(instruction: str) -> str:
 
 def _gated_reply(question: str, history: list[dict] | None) -> dict | None:
     """
-    ถ้าข้อความล่าสุดเป็น smalltalk/meta -> คืน dict คำตอบเบา (ข้าม RAG)
+    ถ้าข้อความล่าสุดเป็น noise/smalltalk/meta -> คืน dict คำตอบเบา (ข้าม RAG)
     ถ้าเป็น clinical -> คืน None (ให้ไปเส้นทาง RAG ปกติ)
     """
     intent = classify_message_intent(question, history)
+    if intent == "noise":
+        # พิมพ์มั่ว/ทดสอบระบบ -> canned ทันที (0 LLM call) แก้ cold start ช้า
+        return {
+            "answer": _NOISE_REPLY,
+            "sources": [],
+            "chunks_used": 0,
+            "intent": intent,
+        }
     if intent == "smalltalk":
+        # เปิดแชทใหม่แล้วทัก (ยังไม่มีบทสนทนา) -> canned ทันที ไม่ต้องรอ LLM
+        if not history and _re.search(r"สวัสดี|หวัดดี|ดีจ้|ดีครับ|ดีค่ะ|ดีคับ|hello|^\W*hi\b|hey", question, _re.IGNORECASE):
+            return {
+                "answer": _COLD_GREETING_REPLY,
+                "sources": [],
+                "chunks_used": 0,
+                "intent": intent,
+            }
         return {
             "answer": _light_reply(_SMALLTALK_INSTRUCTION.format(msg=question)),
             "sources": [],
@@ -1930,6 +2214,36 @@ def _gated_reply(question: str, history: list[dict] | None) -> dict | None:
             "intent": intent,
         }
     return None
+
+
+# ─── Gemini history assembly (summary blocks survive truncation) ─────────────
+
+_SUMMARY_BLOCK_PREFIX = "[สรุป"
+
+
+def _is_summary_block(msg: dict) -> bool:
+    return msg.get("role") == "system" or (msg.get("content") or "").startswith(_SUMMARY_BLOCK_PREFIX)
+
+
+def _build_gemini_history(history: list[dict] | None) -> list[dict]:
+    """
+    แปลง history -> รูปแบบ Gemini โดย:
+      - summary block (บทสรุปช่วงเก่าแบบ immutable) คงไว้เสมอ ไม่โดนตัดด้วย MAX_HISTORY
+        และส่งเป็น user turn (เป็นบริบทข้อเท็จจริง ไม่ใช่คำพูดของโมเดล)
+      - ข้อความปกติ เอาเฉพาะ MAX_HISTORY ล่าสุด (recent window กัน lost-in-the-middle)
+    """
+    if not history:
+        return []
+    blocks = [m for m in history if _is_summary_block(m)]
+    normal = [m for m in history if not _is_summary_block(m)]
+
+    gemini_history: list[dict] = []
+    for m in blocks:
+        gemini_history.append({"role": "user", "parts": [m["content"]]})
+    for m in normal[-MAX_HISTORY:]:
+        role = "user" if m["role"] == "user" else "model"
+        gemini_history.append({"role": role, "parts": [m["content"]]})
+    return gemini_history
 
 
 # ─── Generate Answer (non-streaming) ─────────────────────────────────────────
@@ -1954,20 +2268,20 @@ def generate_answer(
     if gated is not None:
         return gated
 
-    chunks       = search_chunks(question, top_k=top_k)
+    # Case anchor: follow-up ที่ไม่ระบุโรค/อายุ -> ยึดเคสที่กำลังปรึกษาอยู่ (กัน drift)
+    retrieval_query, group_override, anchor_note = resolve_case_context(question, history)
+
+    chunks       = search_chunks(question, top_k=top_k,
+                                 patient_group=group_override, retrieval_query=retrieval_query)
     weak_context = _best_similarity(chunks) < SIMILARITY_THRESHOLD
     context      = build_context(chunks, weak_context=weak_context)
 
-    # Build conversation history
-    gemini_history = []
-    if history:
-        for msg in history[-MAX_HISTORY:]:
-            role = "user" if msg["role"] == "user" else "model"
-            gemini_history.append({"role": role, "parts": [msg["content"]]})
+    gemini_history = _build_gemini_history(history)
 
     user_message = USER_MESSAGE_TEMPLATE.format(
-        question = question,
-        context  = context,
+        question    = question,
+        anchor_note = anchor_note,
+        context     = context,
     )
 
     try:
@@ -2020,20 +2334,20 @@ async def generate_answer_stream(
         }) + "\n"
         return
 
-    chunks       = search_chunks(question, top_k=top_k)
+    # Case anchor: follow-up ที่ไม่ระบุโรค/อายุ -> ยึดเคสที่กำลังปรึกษาอยู่ (กัน drift)
+    retrieval_query, group_override, anchor_note = resolve_case_context(question, history)
+
+    chunks       = search_chunks(question, top_k=top_k,
+                                 patient_group=group_override, retrieval_query=retrieval_query)
     weak_context = _best_similarity(chunks) < SIMILARITY_THRESHOLD
     context      = build_context(chunks, weak_context=weak_context)
 
-    # Build conversation history
-    gemini_history = []
-    if history:
-        for msg in history[-MAX_HISTORY:]:
-            role = "user" if msg["role"] == "user" else "model"
-            gemini_history.append({"role": role, "parts": [msg["content"]]})
+    gemini_history = _build_gemini_history(history)
 
     user_message = USER_MESSAGE_TEMPLATE.format(
-        question = question,
-        context  = context,
+        question    = question,
+        anchor_note = anchor_note,
+        context     = context,
     )
 
     # แหล่งอ้างอิงจาก Guideline (กรองด้วย similarity จริง) — external refs เติมหลังได้คำตอบ
@@ -2170,25 +2484,37 @@ def evaluate_answer_llm(prediction: str, expectation: str) -> dict:
 
 def summarize_history(messages: list[dict]) -> str:
     """
-    สรุปข้อความแชทเก่าๆ เพื่อนำไปใช้เป็น context ระยะสั้น
+    สรุปข้อความแชทเก่าเป็น compaction block แบบ immutable (สรุปครั้งเดียว ไม่สรุปทับซ้ำ)
+    เน้นคงข้อเท็จจริงเชิงตัวเลข/คลินิกครบถ้วน กัน summary drift ("ไข้ 38.8 ไอมีเสมหะ" -> "มีอาการ")
     """
     _init()
-    
+
     if not messages:
         return ""
-        
-    chat_text = "\n".join([f"{m['role'].capitalize()}: {m['content']}" for m in messages])
-    
-    prompt = f"""กรุณาสรุปประวัติการสนทนาต่อไปนี้อย่างกระชับที่สุด 
-เน้นเก็บข้อมูลสำคัญทางการแพทย์ อาการผู้ป่วย และคำแนะนำที่ให้ไปแล้ว (ไม่เกิน 150 คำ):
 
+    chat_text = "\n".join([f"{m['role'].capitalize()}: {m['content']}" for m in messages])
+
+    prompt = f"""สรุปประวัติการสนทนาระหว่างเภสัชกรกับผู้ช่วย AI ด้านล่างให้กระชับ โดยยึดกติกาเหล่านี้อย่างเคร่งครัด:
+1. แยกสรุป "รายเคส/รายผู้ป่วย" (เคส 1, เคส 2, ...) ห้ามควบรวมหลายเคสเป็นข้อความกว้างๆ
+2. แต่ละเคสต้องคงข้อเท็จจริงจำเพาะครบ: โรค/การวินิจฉัย, อายุ, น้ำหนัก, อุณหภูมิ/อาการสำคัญ, ระยะเวลาอาการ,
+   ประวัติแพ้ยา, ยาที่แนะนำ + ขนาดยา + ระยะเวลา (ตัวเลขทุกตัวคงไว้ตามเดิม ห้ามปัด ห้ามตัด ห้ามแปลงเป็นคำกว้างๆ
+   เช่น ห้ามสรุป "ไข้ 38.8 ไอมีเสมหะ" เหลือแค่ "มีอาการ")
+3. เก็บคำถาม follow-up และคำตอบสำคัญที่ให้ไปแล้วแบบย่อ (ประเด็น + ข้อสรุป)
+4. ห้ามเติมข้อมูลที่ไม่มีในบทสนทนา ห้ามตีความเพิ่ม
+5. ความยาวไม่เกิน 200 คำ เป็น bullet ต่อเคส
+
+บทสนทนา:
 {chat_text}
 
 สรุป:"""
 
     try:
         model = genai.GenerativeModel(model_name=CHAT_MODEL)
-        response = model.generate_content(prompt)
+        response = _call_with_retry(
+            model.generate_content,
+            prompt,
+            generation_config={"temperature": 0.1, "max_output_tokens": 1024},
+        )
         return response.text.strip()
     except Exception as e:
         print(f"[ERROR] summarize_history: {e}")
