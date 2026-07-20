@@ -136,16 +136,23 @@ sessions = SessionManager(db_path=str(CHAT_HISTORY_DB), max_messages_per_session
 # ─── Static Files ────────────────────────────────────────────────────────────
 
 FRONTEND_DIR.mkdir(exist_ok=True)
-app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 if DATA_DIR.exists():
     app.mount("/data", StaticFiles(directory=str(DATA_DIR)), name="data")
+
+# React frontend (Vite build output). Only mounted once it's been built
+# (`npm run build` inside frontend/react-app) so a missing dist/ folder never
+# breaks server startup.
+REACT_DIST_DIR = FRONTEND_DIR / "react-app" / "dist"
+REACT_APP_ENABLED = (REACT_DIST_DIR / "index.html").exists()
+if REACT_APP_ENABLED:
+    app.mount("/assets", StaticFiles(directory=str(REACT_DIST_DIR / "assets")), name="react-assets")
 
 
 # ─── Auth Dependency ─────────────────────────────────────────────────────────
 
 # Endpoints that don't require auth
-PUBLIC_PATHS = {"/api/login", "/api/health", "/login", "/", "/static", "/testcase", "/patients", "/patient"}
+PUBLIC_PATHS = {"/api/login", "/api/health", "/login", "/", "/testcase", "/patients", "/patient"}
 
 async def get_current_user(request: Request) -> str:
     """Extract and verify JWT token from Authorization header or cookie"""
@@ -201,27 +208,38 @@ class EditMessageRequest(BaseModel):
     message: str
 
 
-# ─── Pages ───────────────────────────────────────────────────────────────────
+# ─── Pages (React SPA) ───────────────────────────────────────────────────────
+# Client-side routing (react-router-dom) picks the page from the URL, so every
+# page route returns the same index.html; only enabled once dist/ has been
+# built (see REACT_APP_ENABLED above).
+
+def _serve_react_app():
+    if not REACT_APP_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="React frontend not built yet. Run: cd frontend/react-app && npm install && npm run build",
+        )
+    return FileResponse(str(REACT_DIST_DIR / "index.html"))
 
 @app.get("/")
 async def home():
-    return FileResponse(str(FRONTEND_DIR / "index.html"))
+    return _serve_react_app()
 
 @app.get("/login")
 async def login_page():
-    return FileResponse(str(FRONTEND_DIR / "login.html"))
+    return _serve_react_app()
 
 @app.get("/testcase")
 async def testcase_page():
-    return FileResponse(str(FRONTEND_DIR / "testcase.html"))
+    return _serve_react_app()
 
 @app.get("/patients")
 async def patients_page():
-    return FileResponse(str(FRONTEND_DIR / "patients.html"))
+    return _serve_react_app()
 
 @app.get("/patient/{patient_name}")
 async def patient_page(patient_name: str):
-    return FileResponse(str(FRONTEND_DIR / "patient.html"))
+    return _serve_react_app()
 
 
 # ─── Auth API ────────────────────────────────────────────────────────────────
