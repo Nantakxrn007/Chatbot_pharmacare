@@ -60,7 +60,7 @@ from backend.semantic_memory import semantic_memory
 from backend.patient_summary import generate_patient_summary
 from backend.auth import verify_credentials, create_token, verify_token, get_user_display_name
 from backend.config import (
-    PROJECT_ROOT, FRONTEND_DIR, DATA_DIR, TEST_CASE_CSV, CHAT_HISTORY_DB,
+    PROJECT_ROOT, FRONTEND_DIR, DATA_DIR, TEST_CASE_CSV, CHAT_HISTORY_DB, DRUGS_JSON,
     RECENT_WINDOW, COMPACT_THRESHOLD, COMPACT_BATCH, SUMMARY_BLOCK_MAX,
     MEMORY_MIN_SIMILARITY, MEMORY_RECALL_TOP_K, MEMORY_MIN_SESSION_MESSAGES,
 )
@@ -584,6 +584,14 @@ async def get_token_summary(month: str = None, username: str = Depends(get_curre
 
 
 # ─── Test Case API ───────────────────────────────────────────────────────────
+
+@app.get("/api/drugs")
+async def get_drugs(username: str = Depends(get_current_user)):
+    if not DRUGS_JSON.exists():
+        raise HTTPException(status_code=404, detail="drugs.json not found")
+    with open(DRUGS_JSON, encoding="utf-8") as f:
+        return json.load(f)
+
 
 @app.get("/api/testcases")
 async def get_testcases(username: str = Depends(get_current_user)):
