@@ -64,7 +64,7 @@ from backend.config import (
     RECENT_WINDOW, COMPACT_THRESHOLD, COMPACT_BATCH, SUMMARY_BLOCK_MAX,
     MEMORY_MIN_SIMILARITY, MEMORY_RECALL_TOP_K, MEMORY_MIN_SESSION_MESSAGES,
 )
-from datetime import datetime
+from datetime import datetime, timezone
 
 BASE_DIR = PROJECT_ROOT
 
@@ -324,7 +324,7 @@ def _remember_async(session_id: str, role: str, content: str) -> None:
     """เขียนลง semantic memory ใน background thread (embed คือ network call ~0.3-1s ไม่ควรบล็อกคำตอบ)"""
     threading.Thread(
         target=semantic_memory.add_to_memory,
-        args=(session_id, role, content, datetime.now().isoformat()),
+        args=(session_id, role, content, datetime.now(timezone.utc).isoformat()),
         daemon=True,
     ).start()
 
@@ -736,7 +736,7 @@ async def generate_or_update_summary(patient_name: str, username: str = Depends(
     return {
         "patient_name": patient_name,
         "summary": summary,
-        "summary_updated_at": datetime.now().isoformat(),
+        "summary_updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
