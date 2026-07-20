@@ -6,7 +6,7 @@ Session Manager — จัดการ chat sessions ลง SQLite
 import sqlite3
 import uuid
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 class SessionManager:
     """
@@ -106,7 +106,7 @@ class SessionManager:
 
     def create_session(self, username: str, title: str = None, patient_name: str = None) -> dict:
         session_id = str(uuid.uuid4())[:8]
-        now = datetime.now().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         p_name = patient_name or title or "แชทใหม่"
         title = title or p_name
         
@@ -240,7 +240,7 @@ class SessionManager:
 
     def save_summary(self, patient_name: str, username: str, summary: dict):
         """บันทึก/อัปเดต cached summary"""
-        now = datetime.now().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self._get_conn() as conn:
             conn.execute('''
                 INSERT INTO patient_summaries (patient_name, username, summary_json, updated_at)
@@ -259,7 +259,7 @@ class SessionManager:
             if not conn.execute("SELECT 1 FROM sessions WHERE id = ? AND username = ?", (session_id, username)).fetchone():
                 return None
 
-            now = datetime.now().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             sources_json = json.dumps(sources) if sources else "[]"
             
             conn.execute(
@@ -386,7 +386,7 @@ class SessionManager:
                 except (ValueError, TypeError):
                     timestamp_for_summary = row["timestamp"]
             else:
-                timestamp_for_summary = datetime.now().isoformat()
+                timestamp_for_summary = datetime.now(timezone.utc).isoformat()
 
             conn.execute(
                 "INSERT INTO messages (session_id, role, content, sources, timestamp, prompt_tokens, completion_tokens) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -415,7 +415,7 @@ class SessionManager:
             
             conn.execute(
                 "UPDATE sessions SET title = ?, patient_name = ?, updated_at = ? WHERE id = ?",
-                (new_title, new_title, datetime.now().isoformat(), session_id)
+                (new_title, new_title, datetime.now(timezone.utc).isoformat(), session_id)
             )
             
             if old_name and old_name != new_title:

@@ -1,0 +1,212 @@
+.tools-panel {
+    position: relative;
+    width: 260px;
+    flex: 0 0 auto;
+    border-left: 1px solid #dce6e1;
+    background: #fff;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 18px;
+    transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.25s cubic-bezier(0.4, 0, 0.2, 1), padding 0.25s ease;
+}
+
+.tools-panel.collapsed {
+    width: 34px;
+    min-width: 34px;
+    padding: 18px 0;
+}
+
+.tp-toggle-btn {
+    position: absolute;
+    top: 14px;
+    right: 12px;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 1px solid #dce6e1;
+    background: #f6f8f7;
+    color: #3d5951;
+    cursor: pointer;
+    z-index: 2;
+    transition: background 0.15s;
+}
+
+.tp-toggle-btn:hover {
+    background: #ecfdf5;
+}
+
+.tools-panel.collapsed .tp-toggle-btn {
+    position: static;
+    display: flex;
+    margin: 0 auto;
+}
+
+.tp-content {
+    min-width: 224px;
+}
+
+.tools-panel.collapsed .tp-content {
+    display: none;
+}
+
+.tp-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #8aaba5;
+    letter-spacing: 0.06em;
+    margin-bottom: 10px;
+}
+
+.tp-label + .tp-label {
+    margin-top: 22px;
+}
+
+.tp-ref-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px;
+    border-radius: 10px;
+    margin-bottom: 8px;
+    background: #f2f3f4;
+    border: 1px solid #e4e6e8;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.tp-ref-item:hover {
+    background: #ebedee;
+}
+
+.tp-ref-item .material-symbols-rounded {
+    font-size: 20px;
+    color: #1fae86;
+    flex-shrink: 0;
+}
+
+.tp-ref-title {
+    font-size: 12.5px;
+    color: #1a2e2a;
+    font-weight: 600;
+}
+
+.tp-ref-desc {
+    font-size: 11px;
+    color: #8aaba5;
+    margin-top: 2px;
+}
+
+.tp-field-label {
+    font-size: 12px;
+    color: #3d5951;
+    font-weight: 500;
+    margin-bottom: 6px;
+}
+
+.tp-drug-warning {
+    font-size: 10.5px;
+    color: #b0453b;
+    margin: -8px 0 12px;
+    line-height: 1.4;
+}
+
+.tp-select,
+.tp-input {
+    width: 100%;
+    padding: 9px 10px;
+    border-radius: 9px;
+    border: 1px solid #e4e6e8;
+    font-size: 12.5px;
+    color: #1a2e2a;
+    font-family: inherit;
+    background: #f2f3f4;
+    margin-bottom: 14px;
+    outline: none;
+}
+
+.tp-select:focus,
+.tp-input:focus {
+    border-color: #1fae86;
+}
+
+.tp-combobox {
+    position: relative;
+}
+
+.tp-combobox-list {
+    position: absolute;
+    top: calc(100% - 10px);
+    left: 0;
+    right: 0;
+    z-index: 5;
+    max-height: 220px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #e4e6e8;
+    border-radius: 9px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+    list-style: none;
+    padding: 4px;
+    margin: 0;
+}
+
+.tp-combobox-list li {
+    padding: 7px 10px;
+    border-radius: 7px;
+    font-size: 12.5px;
+    color: #1a2e2a;
+    cursor: pointer;
+}
+
+.tp-combobox-list li:hover {
+    background: #eef7f3;
+}
+
+.tp-combobox-list li.tp-combobox-empty {
+    color: #8aaba5;
+    cursor: default;
+}
+
+.tp-combobox-list li.tp-combobox-empty:hover {
+    background: transparent;
+}
+
+.tp-calc-btn {
+    width: 100%;
+    padding: 10px;
+    border-radius: 9px;
+    border: 1px solid #bfe8d9;
+    background: #e3f6ef;
+    color: #16805f;
+    font-size: 12.5px;
+    font-weight: 600;
+    font-family: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.tp-calc-btn:hover:not(:disabled) {
+    background: #d3f0e5;
+}
+
+.tp-calc-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.tp-calc-btn .material-symbols-rounded {
+    font-size: 16px;
+}
+
+@media (max-width: 1100px) {
+    .tools-panel {
+        display: none;
+    }
+}

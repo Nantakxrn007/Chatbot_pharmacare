@@ -60,11 +60,11 @@ from backend.semantic_memory import semantic_memory
 from backend.patient_summary import generate_patient_summary
 from backend.auth import verify_credentials, create_token, verify_token, get_user_display_name
 from backend.config import (
-    PROJECT_ROOT, FRONTEND_DIR, DATA_DIR, TEST_CASE_CSV, CHAT_HISTORY_DB,
+    PROJECT_ROOT, FRONTEND_DIR, DATA_DIR, TEST_CASE_CSV, CHAT_HISTORY_DB, DRUGS_JSON,
     RECENT_WINDOW, COMPACT_THRESHOLD, COMPACT_BATCH, SUMMARY_BLOCK_MAX,
     MEMORY_MIN_SIMILARITY, MEMORY_RECALL_TOP_K, MEMORY_MIN_SESSION_MESSAGES,
 )
-from datetime import datetime
+from datetime import datetime, timezone
 
 BASE_DIR = PROJECT_ROOT
 
@@ -136,16 +136,23 @@ sessions = SessionManager(db_path=str(CHAT_HISTORY_DB), max_messages_per_session
 # ─── Static Files ────────────────────────────────────────────────────────────
 
 FRONTEND_DIR.mkdir(exist_ok=True)
-app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 if DATA_DIR.exists():
     app.mount("/data", StaticFiles(directory=str(DATA_DIR)), name="data")
+
+# React frontend (Vite build output). Only mounted once it's been built
+# (`npm run build` inside frontend/react-app) so a missing dist/ folder never
+# breaks server startup.
+REACT_DIST_DIR = FRONTEND_DIR / "react-app" / "dist"
+REACT_APP_ENABLED = (REACT_DIST_DIR / "index.html").exists()
+if REACT_APP_ENABLED:
+    app.mount("/assets", StaticFiles(directory=str(REACT_DIST_DIR / "assets")), name="react-assets")
 
 
 # ─── Auth Dependency ─────────────────────────────────────────────────────────
 
 # Endpoints that don't require auth
-PUBLIC_PATHS = {"/api/login", "/api/health", "/login", "/", "/static", "/testcase", "/patients", "/patient"}
+PUBLIC_PATHS = {"/api/login", "/api/health", "/login", "/", "/testcase", "/patients", "/patient"}
 
 async def get_current_user(request: Request) -> str:
     """Extract and verify JWT token from Authorization header or cookie"""
@@ -201,27 +208,38 @@ class EditMessageRequest(BaseModel):
     message: str
 
 
-# ─── Pages ───────────────────────────────────────────────────────────────────
+# ─── Pages (React SPA) ───────────────────────────────────────────────────────
+# Client-side routing (react-router-dom) picks the page from the URL, so every
+# page route returns the same index.html; only enabled once dist/ has been
+# built (see REACT_APP_ENABLED above).
+
+def _serve_react_app():
+    if not REACT_APP_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="React frontend not built yet. Run: cd frontend/react-app && npm install && npm run build",
+        )
+    return FileResponse(str(REACT_DIST_DIR / "index.html"))
 
 @app.get("/")
 async def home():
-    return FileResponse(str(FRONTEND_DIR / "index.html"))
+    return _serve_react_app()
 
 @app.get("/login")
 async def login_page():
-    return FileResponse(str(FRONTEND_DIR / "login.html"))
+    return _serve_react_app()
 
 @app.get("/testcase")
 async def testcase_page():
-    return FileResponse(str(FRONTEND_DIR / "testcase.html"))
+    return _serve_react_app()
 
 @app.get("/patients")
 async def patients_page():
-    return FileResponse(str(FRONTEND_DIR / "patients.html"))
+    return _serve_react_app()
 
 @app.get("/patient/{patient_name}")
 async def patient_page(patient_name: str):
-    return FileResponse(str(FRONTEND_DIR / "patient.html"))
+    return _serve_react_app()
 
 
 # ─── Auth API ────────────────────────────────────────────────────────────────
@@ -306,7 +324,7 @@ def _remember_async(session_id: str, role: str, content: str) -> None:
     """เขียนลง semantic memory ใน background thread (embed คือ network call ~0.3-1s ไม่ควรบล็อกคำตอบ)"""
     threading.Thread(
         target=semantic_memory.add_to_memory,
-        args=(session_id, role, content, datetime.now().isoformat()),
+        args=(session_id, role, content, datetime.now(timezone.utc).isoformat()),
         daemon=True,
     ).start()
 
@@ -567,6 +585,14 @@ async def get_token_summary(month: str = None, username: str = Depends(get_curre
 
 # ─── Test Case API ───────────────────────────────────────────────────────────
 
+@app.get("/api/drugs")
+async def get_drugs(username: str = Depends(get_current_user)):
+    if not DRUGS_JSON.exists():
+        raise HTTPException(status_code=404, detail="drugs.json not found")
+    with open(DRUGS_JSON, encoding="utf-8") as f:
+        return json.load(f)
+
+
 @app.get("/api/testcases")
 async def get_testcases(username: str = Depends(get_current_user)):
     csv_path = TEST_CASE_CSV
@@ -718,7 +744,7 @@ async def generate_or_update_summary(patient_name: str, username: str = Depends(
     return {
         "patient_name": patient_name,
         "summary": summary,
-        "summary_updated_at": datetime.now().isoformat(),
+        "summary_updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 

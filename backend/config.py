@@ -35,6 +35,7 @@ USERS_FILE = DATA_DIR / "users.json"
 CHAT_HISTORY_DB = DATA_DIR / "chat_history.db"
 DOSE_CSV = DATA_DIR / "Dose supportive.csv"
 TEST_CASE_CSV = DATA_DIR / "test_case.csv"
+DRUGS_JSON = DATA_DIR / "drugs.json"
 ENV_FILE = PROJECT_ROOT / ".env"
 
 load_dotenv(ENV_FILE)

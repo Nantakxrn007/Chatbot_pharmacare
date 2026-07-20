@@ -1,0 +1,254 @@
+[
+  {
+    "name": "Chlorpheniramine"
+  },
+  {
+    "name": "Brompheniramine"
+  },
+  {
+    "name": "Diphenhydramine"
+  },
+  {
+    "name": "Cyproheptadine"
+  },
+  {
+    "name": "Hydroxyzine"
+  },
+  {
+    "name": "Cetirizine"
+  },
+  {
+    "name": "Loratadine"
+  },
+  {
+    "name": "Fexofenadine"
+  },
+  {
+    "name": "Levocetirizine"
+  },
+  {
+    "name": "Desloratadine"
+  },
+  {
+    "name": "Bilastine"
+  },
+  {
+    "name": "Decolgen prin / TIFFY DEY"
+  },
+  {
+    "name": "Paracetamol"
+  },
+  {
+    "name": "Aspirin"
+  },
+  {
+    "name": "Ibuprofen"
+  },
+  {
+    "name": "Diclofenac"
+  },
+  {
+    "name": "Naproxen"
+  },
+  {
+    "name": "Piroxicam"
+  },
+  {
+    "name": "Mefenamic acid"
+  },
+  {
+    "name": "Celecoxib"
+  },
+  {
+    "name": "Etoricoxib"
+  },
+  {
+    "name": "Phenylephrine + Chlorpheniramine"
+  },
+  {
+    "name": "Phenylephrine + Brompheniramine"
+  },
+  {
+    "name": "Oxymetazoline"
+  },
+  {
+    "name": "Xylometazoline"
+  },
+  {
+    "name": "Naphazoline HCl"
+  },
+  {
+    "name": "Mometasone furoate"
+  },
+  {
+    "name": "Fluticasone furoate"
+  },
+  {
+    "name": "Fluticasone propionate"
+  },
+  {
+    "name": "Budesonide"
+  },
+  {
+    "name": "Triamcinolone acetonide"
+  },
+  {
+    "name": "Beclometasone dipropionate"
+  },
+  {
+    "name": "Ciclesonide"
+  },
+  {
+    "name": "Dextromethorphan"
+  },
+  {
+    "name": "Levodropropizine"
+  },
+  {
+    "name": "Carbocysteine"
+  },
+  {
+    "name": "Acetylcysteine (N-Acetylcysteine)"
+  },
+  {
+    "name": "Bromhexine"
+  },
+  {
+    "name": "Ambroxol"
+  },
+  {
+    "name": "Terco-D (Dextromethorphan + Glyceryl guaiacolate + Terpin hydrate)"
+  },
+  {
+    "name": "Kamilosan M spray"
+  },
+  {
+    "name": "Propoliz mouth spray"
+  },
+  {
+    "name": "Betadine throat spray"
+  },
+  {
+    "name": "Strepsils HHR"
+  },
+  {
+    "name": "Strepsils Maxpro (flurbiprofen)"
+  },
+  {
+    "name": "Strepsils Maxipluzz (Lignocaine)"
+  },
+  {
+    "name": "Strepsils chesty cough (Ambroxol) / Strepsils dry cough (Dextromethorphan)"
+  },
+  {
+    "name": "ยาน้ำแก้ไอผสมมะขามป้อม ตราอภัยภูเบศร 120 ml"
+  },
+  {
+    "name": "ยาแก้ไอน้ำดำ"
+  },
+  {
+    "name": "Betadine gargle 30 ml"
+  },
+  {
+    "name": "Difflam Lozenges"
+  },
+  {
+    "name": "Difflam forte throat spray"
+  },
+  {
+    "name": "Solmax capsule"
+  },
+  {
+    "name": "Muclear"
+  },
+  {
+    "name": "Amoxicillin"
+  },
+  {
+    "name": "Amoxicillin/clavulanate (Augmentin)"
+  },
+  {
+    "name": "Penicillin V"
+  },
+  {
+    "name": "Penicillin G benzathine"
+  },
+  {
+    "name": "Cephalexin"
+  },
+  {
+    "name": "Clindamycin"
+  },
+  {
+    "name": "Azithromycin (Zithromax)"
+  },
+  {
+    "name": "Cefdinir"
+  },
+  {
+    "name": "Cefpodoxime"
+  },
+  {
+    "name": "Cefixime (Suprax)"
+  },
+  {
+    "name": "Doxycycline"
+  },
+  {
+    "name": "Erythromycin"
+  },
+  {
+    "name": "Clarithromycin"
+  },
+  {
+    "name": "Cefuroxime"
+  },
+  {
+    "name": "Cefditoren"
+  },
+  {
+    "name": "Ceftriaxone"
+  },
+  {
+    "name": "Roxithromycin"
+  },
+  {
+    "name": "Levofloxacin"
+  },
+  {
+    "name": "Ceftibuten"
+  },
+  {
+    "name": "Ampicillin/sulbactam (Unasyn)"
+  },
+  {
+    "name": "Cefotaxime"
+  },
+  {
+    "name": "Metronidazole"
+  },
+  {
+    "name": "Piperacillin-tazobactam"
+  },
+  {
+    "name": "Vancomycin"
+  },
+  {
+    "name": "Oseltamivir (Tamiflu)"
+  },
+  {
+    "name": "Zanamivir (Relenza)"
+  },
+  {
+    "name": "Peramivir (Rapivab)"
+  },
+  {
+    "name": "Nirmatrelvir/ritonavir (Paxlovid)"
+  },
+  {
+    "name": "Remdesivir (Veklury)"
+  },
+  {
+    "name": "Hydroxychloroquine"
+  }
+]
