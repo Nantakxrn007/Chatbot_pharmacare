@@ -571,7 +571,7 @@ export default function ChatPage() {
             <textarea
               ref={textareaRef}
               rows={1}
-              placeholder="เล่าอาการผู้ป่วยได้เลยค่ะ..."
+              placeholder="เล่าอาการผู้ป่วยได้เลย"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {

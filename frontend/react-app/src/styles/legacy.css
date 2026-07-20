@@ -114,7 +114,7 @@
             cursor: pointer;
             display: flex;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-start;
             gap: 8px;
             transition: all 0.2s;
         }
@@ -923,7 +923,7 @@
             width: 100%;
             margin: 0 auto;
             display: flex;
-            align-items: flex-end;
+            align-items: center;
             gap: 10px;
             background: #f6f8f7;
             border: 1px solid #dce6e1;
