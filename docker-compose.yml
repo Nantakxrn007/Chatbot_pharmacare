@@ -7,7 +7,6 @@ services:
     volumes:
       - ./rag/qdrant_db:/app/rag/qdrant_db
       - ./rag/data:/app/rag/data
-      - ./frontend:/app/frontend
       - ./backend:/app/backend
       - ./.env:/app/.env
     environment:

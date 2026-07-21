@@ -20,6 +20,10 @@ downloads/
 eggs/
 .eggs/
 lib/
+# ↑ Python's generic "lib/" rule above also matches frontend/react-app/src/lib/
+# (any folder named "lib", not just Python's) — un-ignore our React lib folder:
+!frontend/react-app/src/lib/
+!frontend/react-app/src/lib/**
 lib64/
 parts/
 sdist/
