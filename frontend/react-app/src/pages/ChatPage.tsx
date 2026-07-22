@@ -29,21 +29,25 @@ const QUICK_ACTIONS = [
     label: 'เด็กเป็นหวัด',
     desc: 'เด็ก 3 ขวบ น้ำมูกใส ไอ ไข้ 37.8',
     q: 'เด็ก 3 ขวบ เป็นหวัด น้ำมูกใส ไอเล็กน้อย ไข้ 37.8 ควรให้ยาอะไร?',
+    icon: 'sick',
   },
   {
     label: 'เจ็บคอ Centor 4',
     desc: 'ต่อมทอนซิลบวมมีหนอง ต้อง ATB?',
     q: 'ผู้ใหญ่เจ็บคอมาก มีไข้สูง ต่อมทอนซิลบวมมีหนอง Modified Centor = 4 คะแนน ควรให้ยาอะไร?',
+    icon: 'record_voice_over',
   },
   {
     label: 'หูอักเสบ AOM',
     desc: 'เด็ก 2 ขวบ ปวดหู ไข้ 38.5',
     q: 'เด็ก 2 ขวบ ปวดหูข้างขวา ไข้ 38.5 สงสัย AOM ควรรักษาอย่างไร?',
+    icon: 'hearing',
   },
   {
     label: 'ไซนัสอักเสบ',
     desc: 'น้ำมูกข้นเหลืองเขียว 12 วัน',
     q: 'ผู้ใหญ่ น้ำมูกข้นเหลืองเขียว ปวดหน้าผาก 12 วัน สงสัยไซนัสอักเสบ',
+    icon: 'air',
   },
 ];
 
@@ -465,8 +469,13 @@ export default function ChatPage() {
               <div className="quick-actions">
                 {QUICK_ACTIONS.map((qa) => (
                   <button className="quick-btn" key={qa.label} onClick={() => quickAsk(qa.q)}>
-                    <div className="label">{qa.label}</div>
-                    <div className="desc">{qa.desc}</div>
+                    <div className="quick-btn-icon">
+                      <span className="material-symbols-rounded">{qa.icon}</span>
+                    </div>
+                    <div className="quick-btn-text">
+                      <div className="label">{qa.label}</div>
+                      <div className="desc">{qa.desc}</div>
+                    </div>
                   </button>
                 ))}
               </div>

@@ -627,6 +627,9 @@
         }
 
         .quick-btn {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
             padding: 16px;
             border-radius: 12px;
             border: 1px solid #dce6e1;
@@ -640,6 +643,26 @@
         .quick-btn:hover {
             border-color: #1fae86;
             background: #f6fbf9;
+        }
+
+        .quick-btn-icon {
+            flex-shrink: 0;
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: #e3f6ef;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .quick-btn-icon .material-symbols-rounded {
+            font-size: 19px;
+            color: #16805f;
+        }
+
+        .quick-btn-text {
+            min-width: 0;
         }
 
         .quick-btn .label {
