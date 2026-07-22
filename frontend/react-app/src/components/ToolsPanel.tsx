@@ -5,6 +5,7 @@ import { getDrugs } from '../lib/api';
 const REFERENCES = [
   { source: 'AAFP 2022', desc: 'แนวทาง URI (อเมริกา)' },
   { source: 'Thai URI guideline', desc: 'แนวทาง URI เด็ก (ไทย)' },
+  { source: 'Dose supportive', desc: 'ขนาดยาสนับสนุนการรักษา' },
 ];
 
 // Used only if /api/drugs fails to load (network error, server down, etc.)
