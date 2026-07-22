@@ -104,7 +104,24 @@ export default function ChatPage() {
         navigate('/login', { replace: true });
       });
     refreshSessions();
+    // currentSessionId only lives in this component's state, so leaving "/"
+    // (e.g. to view a patient's history) and coming back remounts ChatPage
+    // with nothing loaded — restore whatever chat was open last instead of
+    // dropping back to the blank welcome screen.
+    const lastSessionId = localStorage.getItem('lastSessionId');
+    if (lastSessionId) {
+      switchSession(lastSessionId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate, refreshSessions]);
+
+  useEffect(() => {
+    if (currentSessionId) {
+      localStorage.setItem('lastSessionId', currentSessionId);
+    } else {
+      localStorage.removeItem('lastSessionId');
+    }
+  }, [currentSessionId]);
 
   useEffect(() => {
     const c = chatMessagesRef.current;
