@@ -73,10 +73,10 @@
             gap: 10px;
         }
 
-        .logo-icon {
-            width: 36px;
-            height: 36px;
-            border-radius: 10px;
+        .sidebar-logo-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 9px;
             background: #e3f6ef;
             border: 1px solid #bfe8d9;
             display: flex;

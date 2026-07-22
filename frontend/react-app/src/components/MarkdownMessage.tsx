@@ -65,6 +65,14 @@ const SCORE_LINE_PATTERN = /:\s*\d/;
 // separated instead of crammed after the dash.
 const REASON_SEPARATOR_PATTERN = /\s*--\s*(?=\*{0,2}เหตุผล)/g;
 
+// Dose bullets ("Paracetamol: <intro/concentration options> โดยขนาดยา...")
+// cram the actual dosing numbers onto the end of an already-long sentence —
+// break onto a new line right before the dosing clause so the numbers are
+// easy to spot instead of buried mid-paragraph. Deliberately narrow (exact
+// phrases, not a bare "โดย") to avoid breaking unrelated sentences that
+// happen to contain the very common word "โดย".
+const DOSE_CLAUSE_SEPARATOR_PATTERN = /\s+(?=โดยขนาดยา|โดยต้องคำนวณ|โดยต้องใช้)/g;
+
 // "ข้อควรระวัง" / "ห้าม..." are flagged red wherever they appear inline.
 // IMPORTANT: this only wraps the bare word — it must NOT consume any
 // surrounding "**". The backend sometimes bolds just the word ("**ห้าม**")
@@ -85,6 +93,7 @@ function renderMd(text: string): string {
       SCORE_LINE_PATTERN.test(inner) ? match : `### ${inner}`
     );
     processed = processed.replace(REASON_SEPARATOR_PATTERN, '\n');
+    processed = processed.replace(DOSE_CLAUSE_SEPARATOR_PATTERN, '\n');
 
     processed = processed.replace(
       PROBABILITY_PATTERN,
@@ -144,7 +153,11 @@ function applyHeadingBadges(root: HTMLElement) {
   root.querySelectorAll('h1, h2, h3, h4').forEach((heading) => {
     counter += 1;
     let text = heading.textContent || '';
-    text = text.replace(/^(\d+)\.\s*/, '').replace(/^[\p{Extended_Pictographic}‍️]+\s*/u, '');
+    // Strip a leading "N." or hierarchical "3a."/"3b." prefix — the backend
+    // sometimes numbers sub-sections that way, which the plain \d+\. version
+    // of this regex missed entirely, leaving the old prefix sitting next to
+    // our own renumbered badge (e.g. "④ 3a. ยาปฏิชีวนะ").
+    text = text.replace(/^(\d+[a-zA-Z]?)\.\s*/, '').replace(/^[\p{Extended_Pictographic}‍️]+\s*/u, '');
     if (RED_FLAG_PATTERN.test(text)) {
       heading.classList.add('ai-heading-warning');
     } else if (NOTE_HEADING_PATTERN.test(text)) {

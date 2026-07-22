@@ -79,8 +79,8 @@ export default function Sidebar({
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}${mobileOpen ? ' open' : ''}`} id="sidebar">
       <div className="sidebar-header">
         <Link to="/" className="sidebar-logo">
-          <div className="logo-icon">
-            <span className="material-symbols-rounded" style={{ fontSize: 20, color: '#1fae86', fontVariationSettings: "'FILL' 1" }}>
+          <div className="sidebar-logo-icon">
+            <span className="material-symbols-rounded" style={{ fontSize: 24, color: '#1fae86', fontVariationSettings: "'FILL' 1" }}>
               local_pharmacy
             </span>
           </div>
