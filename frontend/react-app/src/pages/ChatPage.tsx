@@ -144,7 +144,12 @@ export default function ChatPage() {
       if (pendingMessage) {
         const msg = pendingMessage;
         setPendingMessage(null);
-        await sendMessage(msg);
+        // Don't call sendMessage() here — its closure still sees the old
+        // (null) currentSessionId since this state update hasn't re-rendered
+        // yet, so it would think there's no session and pop the name modal
+        // again. Send directly with the session id we just got back instead.
+        setMessages((prev) => [...prev, { role: 'user', content: msg, timestamp: new Date().toISOString() }]);
+        await runStream('/api/chat/stream', { session_id: s.id, message: msg });
       }
     } catch (e) {
       console.error(e);
@@ -392,7 +397,7 @@ export default function ChatPage() {
 
   const chatTitle = currentPatientName || (currentSessionId ? 'แชท' : 'เคสใหม่');
   const chatSubtitle = currentPatientName
-    ? `ผู้ป่วย: ${currentPatientName}${updatedAtLabel ? ` | อัปเดตล่าสุด: ${updatedAtLabel}` : ''}`
+    ? (updatedAtLabel ? `อัปเดตล่าสุด: ${updatedAtLabel}` : 'ผู้ป่วย')
     : 'ระบบผู้ช่วยเภสัชกร PharmaCare AI';
 
   return (
