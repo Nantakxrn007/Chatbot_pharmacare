@@ -58,8 +58,15 @@
 }
 
 .logo-icon {
-    font-size: 46px;
-    color: #1fae86;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 72px;
+    height: 72px;
+    border-radius: 20px;
+    background: #e3f6ef;
+    font-size: 38px;
+    color: #16805f;
     font-variation-settings: 'FILL' 1;
 }
 

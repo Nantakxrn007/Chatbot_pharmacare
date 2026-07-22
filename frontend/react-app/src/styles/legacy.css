@@ -13,7 +13,6 @@
             font-family: 'Prompt', 'Noto Sans Thai', sans-serif;
             background: #f8fafc;
             color: #1e293b;
-            zoom: var(--ui-zoom);
         }
 
         /* Scrollbar */
@@ -37,6 +36,7 @@
         /* Layout */
         .app-layout {
             display: flex;
+            zoom: var(--ui-zoom);
             height: calc(100vh / var(--ui-zoom));
             overflow: hidden;
         }

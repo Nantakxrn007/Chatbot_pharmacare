@@ -94,7 +94,7 @@ export default function LoginPage() {
           </form>
 
           <p className="footer-text">
-            PharmaCare AI v2.0 — โรคติดเชื้อทางเดินหายใจส่วนบน (URI)
+            PharmaCare AI — โรคติดเชื้อทางเดินหายใจส่วนบน (URI)
             <br />
             <span className="footer-ref">
               <span className="material-symbols-rounded">description</span>
