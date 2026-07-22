@@ -710,13 +710,14 @@
         }
 
         .msg-bubble-user {
-            background: #1fae86;
-            border-radius: 999px;
+            background: linear-gradient(135deg, #24bd92 0%, #1a9873 100%);
+            border-radius: 16px;
             padding: 0.6rem 1.1rem;
             color: #fff;
             font-size: 0.92rem;
             line-height: 1.65;
             position: relative;
+            box-shadow: 0 2px 6px rgba(31, 174, 134, 0.25);
         }
 
         .msg-user-actions {
