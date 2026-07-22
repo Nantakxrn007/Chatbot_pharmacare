@@ -17,7 +17,13 @@ function escapeHtml(text: string): string {
 // "สูงมาก" must be listed before "สูง" (and "ปานกลางถึงสูง" before "ปานกลาง")
 // so the longer word matches first — otherwise the alternation grabs "สูง"
 // alone and leaves "มาก" as unrendered trailing text.
-const PROBABILITY_PATTERN = /โอกาส\s*:?\s*\*{0,2}(สูงมาก|ปานกลางถึงสูง|ปานกลาง|กลาง|สูง|ต่ำ)\*{0,2}/g;
+// Group 1 ("เป็น"/"จะเป็น" + optional colon/spacing) and group 2 (a short
+// run-up description, e.g. a diagnosis name) let this also catch phrasing
+// like "มีโอกาสเป็น GABHS Pharyngitis สูง" — not just the direct "โอกาส: สูง".
+// The run-up is capped at 100 chars with no period so it can't bleed into
+// an unrelated later sentence that happens to contain a level word.
+const PROBABILITY_PATTERN =
+  /โอกาส((?:เป็น|จะเป็น)?\s*:?\s*)([^\n.]{0,100}?)\*{0,2}(สูงมาก|ปานกลางถึงสูง|ปานกลาง|กลาง|สูง|ต่ำ)\*{0,2}/g;
 const PROBABILITY_CLASS: Record<string, string> = {
   สูงมาก: 'ai-prob-badge ai-prob-vhigh',
   สูง: 'ai-prob-badge ai-prob-high',
@@ -26,6 +32,13 @@ const PROBABILITY_CLASS: Record<string, string> = {
   กลาง: 'ai-prob-badge ai-prob-mid',
   ต่ำ: 'ai-prob-badge ai-prob-low',
 };
+
+// Dosage amounts (e.g. "500 mg", "1,000 mg", "325-650 mg", "80-90 มก./กก./วัน")
+// get a light highlight chip so they stand out from the surrounding
+// instructions. Uses a lookahead instead of \b to mark the end of the unit —
+// \b only recognizes ASCII word chars, so it silently never matches after a
+// Thai unit like "มก." (no ASCII/non-ASCII transition for it to detect).
+const DOSE_PATTERN = /\d[\d,.]*(?:\s*-\s*\d[\d,.]*)?\s*(?:mg|mcg|mL|ml|IU|g|หน่วย|มก\.?|มล\.?)(?![a-zA-Zก-๙])/gi;
 
 /**
  * Parses inline [Ref: AAFP, Page: 4] / [Ref: ความรู้ทั่วไป... อ้างอิงจาก UpToDate]
@@ -40,6 +53,12 @@ const PROBABILITY_CLASS: Record<string, string> = {
 // every answer format gets the same numbered-card treatment, no matter how
 // the backend wrote it or whether it numbered the section.
 const BOLD_ONLY_LINE_PATTERN = /^\*\*([^\n*]+)\*\*\s*$/gm;
+
+// A bold-only line like "**คะแนนรวม: 5 คะแนน**" is a result readout, not a
+// section title — it just happens to also be a whole bold line. Skip
+// promoting anything shaped like "label: <number>" so only real headings
+// (no trailing number after a colon) get the numbered-card treatment.
+const SCORE_LINE_PATTERN = /:\s*\d/;
 
 // A bullet's "main point -- เหตุผล: ..." reasoning clause reads as one run-on
 // line — break it onto its own line before rendering so it's visually
@@ -62,13 +81,26 @@ const PROHIBIT_PATTERN = /ห้าม/g;
 function renderMd(text: string): string {
   if (!text) return '';
   try {
-    let processed = text.replace(BOLD_ONLY_LINE_PATTERN, '### $1');
+    let processed = text.replace(BOLD_ONLY_LINE_PATTERN, (match, inner: string) =>
+      SCORE_LINE_PATTERN.test(inner) ? match : `### ${inner}`
+    );
     processed = processed.replace(REASON_SEPARATOR_PATTERN, '\n');
 
-    processed = processed.replace(PROBABILITY_PATTERN, (match, level: string) => {
-      const cls = PROBABILITY_CLASS[level] || 'ai-prob-badge';
-      return `<span class="${cls}">โอกาส: ${escapeHtml(level)}</span>`;
-    });
+    processed = processed.replace(
+      PROBABILITY_PATTERN,
+      (_match, lead: string, runup: string, level: string) => {
+        const cls = PROBABILITY_CLASS[level] || 'ai-prob-badge';
+        if (!runup.trim()) {
+          // Direct mention ("โอกาส: สูง" / "โอกาสสูง") — compact badge.
+          return `<span class="${cls}">โอกาส: ${escapeHtml(level)}</span>`;
+        }
+        // Level word appears after a run-up description (e.g. a diagnosis
+        // name) — keep that text as-is and just highlight the level word.
+        return `โอกาส${lead}${runup}<span class="${cls}">${escapeHtml(level)}</span>`;
+      }
+    );
+
+    processed = processed.replace(DOSE_PATTERN, (match) => `<span class="ai-dose-highlight">${match}</span>`);
 
     processed = processed.replace(CAUTION_PATTERN, '<span class="ai-caution-text">ข้อควรระวัง</span>');
     processed = processed.replace(PROHIBIT_PATTERN, '<span class="ai-caution-text">ห้าม</span>');
@@ -104,7 +136,7 @@ function renderMd(text: string): string {
 // badge (1, 2, 3…), whatever the backend prefixed it with — an explicit
 // "N. " counts toward the running number, an emoji (e.g. "### 📊 ประเมิน")
 // or plain text just gets stripped and renumbered in order of appearance.
-const RED_FLAG_PATTERN = /red\s*flags?|สัญญาณเตือน/i;
+const RED_FLAG_PATTERN = /red\s*flags?|สัญญาณเตือน|ข้อควรระวัง/i;
 const NOTE_HEADING_PATTERN = /ข้อซักถาม|หมายเหตุ/;
 
 function applyHeadingBadges(root: HTMLElement) {

@@ -1099,6 +1099,15 @@
             color: #4b5563;
         }
 
+        .ai-dose-highlight {
+            display: inline-block;
+            padding: 0.05rem 0.4rem;
+            border-radius: 6px;
+            background: #eef2ff;
+            color: #3730a3;
+            font-weight: 700;
+        }
+
         .ai-text p {
             margin-bottom: 0.9rem;
         }
