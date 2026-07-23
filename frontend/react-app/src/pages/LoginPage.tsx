@@ -38,6 +38,16 @@ export default function LoginPage() {
 
   return (
     <div className="login-page">
+      <div className="login-bg-decor" aria-hidden="true">
+        <span className="decor-dot dot-1" />
+        <span className="decor-dot dot-2" />
+        <span className="decor-dot dot-3" />
+        <span className="decor-dot dot-4" />
+        <span className="decor-dot dot-5" />
+        <span className="decor-dot dot-6" />
+        <span className="decor-dot dot-7" />
+        <span className="decor-dot dot-8" />
+      </div>
       <div className="login-container">
         <div className={`login-card${shake ? ' shake' : ''}`}>
           <div className="logo-area">

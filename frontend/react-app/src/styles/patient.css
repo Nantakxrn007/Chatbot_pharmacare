@@ -1,4 +1,4 @@
-.patient-page { font-family: 'Prompt', 'Noto Sans Thai', sans-serif; background: #f6f8f7; color: #1a2e2a; min-height: 100vh; }
+.patient-page { font-family: 'Prompt', 'Noto Sans Thai', sans-serif; background: #fbfffe; color: #1a2e2a; min-height: 100vh; }
 
 .pt-top-nav {
     height: 60px;
@@ -29,6 +29,7 @@
     padding: 20px 22px;
     margin-bottom: 18px;
     display: flex; align-items: center; gap: 16px;
+    box-shadow: 0 2px 12px rgba(16, 30, 40, 0.05);
 }
 .pt-patient-avatar {
     width: 52px; height: 52px;
@@ -51,6 +52,11 @@
     background: #fff;
     border: 1px solid #dce6e1;
     border-radius: 12px; padding: 18px 20px;
+    box-shadow: 0 2px 10px rgba(16, 30, 40, 0.05);
+    transition: box-shadow 0.2s ease;
+}
+.pt-card:hover {
+    box-shadow: 0 4px 16px rgba(16, 30, 40, 0.08);
 }
 .pt-card-title { font-size: 13.5px; font-weight: 600; color: #1a2e2a; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 7px; }
 .pt-card-full { grid-column: 1 / -1; }
@@ -117,18 +123,23 @@
     background: #1fae86;
     color: #fff; font-size: 12.5px; font-weight: 500;
     font-family: inherit; cursor: pointer;
-    transition: background 0.15s;
+    box-shadow: 0 2px 8px rgba(31, 174, 134, 0.28);
+    transition: background 0.15s, box-shadow 0.15s, transform 0.15s;
 }
-.pt-generate-btn:hover:not(:disabled) { background: #1a9876; }
+.pt-generate-btn:hover:not(:disabled) { background: #1a9876; box-shadow: 0 4px 12px rgba(31, 174, 134, 0.35); transform: translateY(-1px); }
+.pt-generate-btn:active:not(:disabled) { transform: translateY(0); }
 .pt-generate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .pt-export-btn {
     display: flex; align-items: center; gap: 6px;
-    padding: 8px 14px; border-radius: 8px; font-size: 12.5px; cursor: pointer;
-    background: #fff;
+    padding: 8px 14px; border-radius: 8px; font-size: 12.5px; font-weight: 500; cursor: pointer;
+    font-family: inherit;
+    transition: background 0.15s, box-shadow 0.15s, transform 0.15s, border-color 0.15s;
 }
-.pt-export-btn-pdf { border: 1px solid #e3b9b3; color: #b0453b; }
-.pt-export-btn-excel { border: 1px solid #b7c9c1; color: #1fae86; }
+.pt-export-btn-pdf { border: 1px solid #e3b9b3; color: #b0453b; background: #fdf4f3; }
+.pt-export-btn-pdf:hover { background: #fbe9e7; border-color: #d99e96; box-shadow: 0 2px 8px rgba(176, 69, 59, 0.14); transform: translateY(-1px); }
+.pt-export-btn-excel { border: 1px solid #b7c9c1; color: #1fae86; background: #edfaf5; }
+.pt-export-btn-excel:hover { background: #dff5ec; border-color: #8fcdb6; box-shadow: 0 2px 8px rgba(31, 174, 134, 0.14); transform: translateY(-1px); }
 
 .pt-update-info { font-size: 12px; color: #8aaba5; margin-top: 4px; }
 

@@ -4,6 +4,7 @@
     flex: 0 0 auto;
     border-left: 1px solid #dce6e1;
     background: #fff;
+    box-shadow: -2px 0 12px rgba(16, 30, 40, 0.04);
     overflow-y: auto;
     overflow-x: hidden;
     padding: 18px;
@@ -207,6 +208,42 @@
 
 @media (max-width: 1100px) {
     .tools-panel {
-        display: none;
+        position: fixed;
+        top: 0;
+        right: 0;
+        height: 100vh;
+        width: 280px;
+        min-width: 280px;
+        max-width: 82vw;
+        border-left: 1px solid #dce6e1;
+        transform: translateX(100%) !important;
+        /* No transition here — this panel sits under an ancestor with a
+           CSS `zoom` applied (.app-layout), and animating `transform` on a
+           `position: fixed` descendant of a zoomed element gets stuck mid-
+           transition in Chrome (computed style stops updating entirely).
+           Confirmed by testing: the exact same rule works instantly with
+           transition removed, but never resolves with it present. */
+        z-index: 50;
+    }
+
+    .tools-panel.collapsed {
+        width: 280px;
+        min-width: 280px;
+        padding: 18px;
+    }
+
+    .tools-panel.collapsed .tp-content {
+        display: block;
+    }
+
+    .tools-panel.collapsed .tp-toggle-btn {
+        position: absolute;
+        top: 14px;
+        right: 12px;
+        margin: 0;
+    }
+
+    .tools-panel.mobile-open {
+        transform: translateX(0) !important;
     }
 }

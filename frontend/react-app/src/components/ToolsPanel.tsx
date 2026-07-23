@@ -17,9 +17,11 @@ interface Props {
   onSendMessage: (text: string) => void;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  mobileOpen: boolean;
+  onCloseMobile: () => void;
 }
 
-export default function ToolsPanel({ onOpenReference, onSendMessage, collapsed, onToggleCollapsed }: Props) {
+export default function ToolsPanel({ onOpenReference, onSendMessage, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile }: Props) {
   const [drug, setDrug] = useState('');
   const [drugSearch, setDrugSearch] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -60,10 +62,10 @@ export default function ToolsPanel({ onOpenReference, onSendMessage, collapsed, 
   };
 
   return (
-    <aside className={`tools-panel${collapsed ? ' collapsed' : ''}`}>
+    <aside className={`tools-panel${collapsed ? ' collapsed' : ''}${mobileOpen ? ' mobile-open' : ''}`}>
       <button
         className="tp-toggle-btn"
-        onClick={onToggleCollapsed}
+        onClick={mobileOpen ? onCloseMobile : onToggleCollapsed}
         title={collapsed ? 'เปิดแผงเครื่องมือ' : 'ปิดแผงเครื่องมือ'}
       >
         <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">

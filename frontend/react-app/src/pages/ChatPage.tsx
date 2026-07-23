@@ -30,24 +30,32 @@ const QUICK_ACTIONS = [
     desc: 'เด็ก 3 ขวบ น้ำมูกใส ไอ ไข้ 37.8',
     q: 'เด็ก 3 ขวบ เป็นหวัด น้ำมูกใส ไอเล็กน้อย ไข้ 37.8 ควรให้ยาอะไร?',
     icon: 'sick',
+    iconColor: '#dc4c64',
+    iconBg: '#fdeaea',
   },
   {
     label: 'เจ็บคอ Centor 4',
     desc: 'ต่อมทอนซิลบวมมีหนอง ต้อง ATB?',
     q: 'ผู้ใหญ่เจ็บคอมาก มีไข้สูง ต่อมทอนซิลบวมมีหนอง Modified Centor = 4 คะแนน ควรให้ยาอะไร?',
     icon: 'record_voice_over',
+    iconColor: '#2f6fbf',
+    iconBg: '#e6f0fb',
   },
   {
     label: 'หูอักเสบ AOM',
     desc: 'เด็ก 2 ขวบ ปวดหู ไข้ 38.5',
     q: 'เด็ก 2 ขวบ ปวดหูข้างขวา ไข้ 38.5 สงสัย AOM ควรรักษาอย่างไร?',
     icon: 'hearing',
+    iconColor: '#b5790a',
+    iconBg: '#fdf3e0',
   },
   {
     label: 'ไซนัสอักเสบ',
     desc: 'น้ำมูกข้นเหลืองเขียว 12 วัน',
     q: 'ผู้ใหญ่ น้ำมูกข้นเหลืองเขียว ปวดหน้าผาก 12 วัน สงสัยไซนัสอักเสบ',
     icon: 'medical_services',
+    iconColor: '#c2660a',
+    iconBg: '#fdece0',
   },
 ];
 
@@ -84,6 +92,7 @@ export default function ChatPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
   const [toolsPanelCollapsed, setToolsPanelCollapsed] = useState(false);
+  const [toolsPanelMobileOpen, setToolsPanelMobileOpen] = useState(false);
   const [toast, setToast] = useState('');
 
   const showWelcome = messages.length === 0 && streamingText === null;
@@ -465,6 +474,9 @@ export default function ChatPage() {
                 ประวัติคนไข้
               </Link>
             )}
+            <button className="tools-mobile-btn" onClick={() => setToolsPanelMobileOpen(true)} title="เปิดแผงเครื่องมือ">
+              <span className="material-symbols-rounded" style={{ fontSize: 18 }}>tune</span>
+            </button>
             <div className="top-bar-user">
               <div className="top-bar-user-avatar">{(displayName || 'A').charAt(0).toUpperCase()}</div>
               <span className="top-bar-user-name">{displayName || 'Pharmacist'}</span>
@@ -476,21 +488,21 @@ export default function ChatPage() {
           {showWelcome ? (
             <div className="welcome">
               <div className="welcome-icon">
-                <span className="material-symbols-rounded" style={{ fontSize: 32, color: '#fff', fontVariationSettings: "'FILL' 1" }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 28, color: '#fff', fontVariationSettings: "'FILL' 1" }}>
                   local_pharmacy
                 </span>
               </div>
-              <h2>PharmaCare AI</h2>
-              <p style={{ marginBottom: 2 }}>ผู้ช่วยเภสัชกรสำหรับโรคติดเชื้อทางเดินหายใจส่วนบน</p>
-              <div className="welcome-note">อ้างอิงจาก AAFP 2022 และแนวทาง พ.ศ. 2562</div>
+              <h2>ยินดีต้อนรับสู่ PharmaCare AI</h2>
+              <p style={{ marginBottom: 2 }}>ผู้ช่วยเภสัชกรอัจฉริยะ ให้คำปรึกษาด้านยาและการรักษาโรคระบบทางเดินหายใจส่วนบน</p>
+              <div className="welcome-note">อ้างอิงจาก AAFP 2022 และแนวทางการดูแลรักษาโรคติดเชื้อเฉียบพลันระบบหายใจในเด็ก พ.ศ. 2562</div>
               <div className="quick-actions">
                 {QUICK_ACTIONS.map((qa) => (
                   <button className="quick-btn" key={qa.label} onClick={() => quickAsk(qa.q)}>
-                    <div className="quick-btn-icon">
-                      <span className="material-symbols-rounded">{qa.icon}</span>
+                    <div className="quick-btn-icon" style={{ background: qa.iconBg }}>
+                      <span className="material-symbols-rounded" style={{ color: qa.iconColor }}>{qa.icon}</span>
                     </div>
                     <div className="quick-btn-text">
-                      <div className="label">{qa.label}</div>
+                      <div className="label" style={{ color: qa.iconColor }}>{qa.label}</div>
                       <div className="desc">{qa.desc}</div>
                     </div>
                   </button>
@@ -537,10 +549,13 @@ export default function ChatPage() {
           )}
         </div>
 
-        <div className="input-area flex flex-col gap-2 p-4 bg-white border-t border-gray-200">
-          <div className="suggested-questions flex flex-wrap gap-2 mb-1" style={{ display: showSuggested ? 'flex' : 'none', position: 'relative' }}>
+        <div
+          className="input-area flex flex-col gap-1.5 p-3 bg-white border-t border-gray-200"
+          style={{ marginLeft: -32, paddingLeft: 32 + 12, position: 'relative', zIndex: 1 }}
+        >
+          <div className="suggested-questions flex flex-wrap gap-1.5" style={{ display: showSuggested ? 'flex' : 'none', position: 'relative' }}>
             <div className="relative group" style={{ zIndex: 50 }}>
-              <button className="text-xs px-3 py-1.5 rounded-full border border-gray-200 bg-gray-50 text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 transition-colors shadow-sm flex items-center gap-1">
+              <button className="text-xs px-2.5 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 transition-colors shadow-sm flex items-center gap-1">
                 <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
                 </svg>
@@ -578,7 +593,7 @@ export default function ChatPage() {
             </div>
 
             <button
-              className="text-xs px-3 py-1.5 rounded-full border border-gray-200 bg-gray-50 text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 transition-colors shadow-sm flex items-center gap-1"
+              className="text-xs px-2.5 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 transition-colors shadow-sm flex items-center gap-1"
               onClick={() => quickAsk('คนไข้รายนี้มีประวัติการแพ้ยาหรือโรคประจำตัวอะไรที่ต้องระวังไหม?')}
             >
               <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -587,7 +602,7 @@ export default function ChatPage() {
               โรคประจำตัว / แพ้ยา
             </button>
             <button
-              className="text-xs px-3 py-1.5 rounded-full border border-gray-200 bg-gray-50 text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 transition-colors shadow-sm flex items-center gap-1"
+              className="text-xs px-2.5 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 transition-colors shadow-sm flex items-center gap-1"
               onClick={() => quickAsk('ขนาดยาที่ต้องใช้สำหรับคนไข้รายนี้ ควรเป็นเท่าไหร่?')}
             >
               <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -630,11 +645,14 @@ export default function ChatPage() {
         onSendMessage={quickAsk}
         collapsed={toolsPanelCollapsed}
         onToggleCollapsed={() => setToolsPanelCollapsed((v) => !v)}
+        mobileOpen={toolsPanelMobileOpen}
+        onCloseMobile={() => setToolsPanelMobileOpen(false)}
       />
 
       <PdfPanel target={pdfTarget} onClose={() => setPdfTarget(null)} />
 
       {sidebarMobileOpen && <div className="sidebar-overlay show" onClick={() => setSidebarMobileOpen(false)} />}
+      {toolsPanelMobileOpen && <div className="tools-overlay show" onClick={() => setToolsPanelMobileOpen(false)} />}
       <div className={`toast${toast ? ' show' : ''}`}>{toast}</div>
 
       <NewChatModal open={newChatOpen} onClose={() => setNewChatOpen(false)} onConfirm={handleNewChatConfirm} />

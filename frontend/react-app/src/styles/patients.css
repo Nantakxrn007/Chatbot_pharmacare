@@ -1,4 +1,4 @@
-.patients-page { font-family: 'Prompt', 'Noto Sans Thai', sans-serif; background: #f6f8f7; color: #1a2e2a; min-height: 100vh; }
+.patients-page { font-family: 'Prompt', 'Noto Sans Thai', sans-serif; background: #fbfffe; color: #1a2e2a; min-height: 100vh; }
 
 .pp-top-nav {
     height: 60px;
@@ -26,6 +26,7 @@
 .pp-stat-card {
     background: #fff; border: 1px solid #dce6e1; border-radius: 12px;
     padding: 18px; text-align: center;
+    box-shadow: 0 2px 10px rgba(16, 30, 40, 0.05);
 }
 .pp-stat-value { font-size: 24px; font-weight: 700; }
 .pp-stat-label { font-size: 12px; color: #4a6660; margin-top: 4px; }
@@ -49,8 +50,9 @@
     background: #fff; border: 1px solid #dce6e1; border-radius: 12px;
     padding: 16px; cursor: pointer; text-decoration: none; color: inherit;
     display: block; transition: all 0.15s;
+    box-shadow: 0 2px 10px rgba(16, 30, 40, 0.05);
 }
-.pp-patient-card:hover { border-color: #1fae86; box-shadow: 0 2px 10px rgba(31,174,134,0.10); }
+.pp-patient-card:hover { border-color: #1fae86; box-shadow: 0 4px 16px rgba(31,174,134,0.14); transform: translateY(-1px); }
 
 .pp-card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .pp-card-avatar {

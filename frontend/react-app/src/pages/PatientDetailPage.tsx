@@ -117,6 +117,20 @@ export default function PatientDetailPage() {
       // nothing to center.
       const captureWidth = element.scrollWidth;
       const captureHeight = element.scrollHeight;
+
+      // Record each card's vertical span (in source pixels, relative to the
+      // container) before capturing. The PDF is built by slicing one tall
+      // image at fixed page-height intervals — with no awareness of card
+      // boundaries, a slice can land mid-card, splitting it across two
+      // pages (shows up as a hard seam plus torn/duplicated text at the
+      // cut). We use these spans below to nudge each page break into the
+      // gap before a card instead of through it.
+      const cardTopOffset = element.getBoundingClientRect().top;
+      const cardRangesPx = Array.from(element.querySelectorAll<HTMLElement>('.pt-card')).map((card) => {
+        const r = card.getBoundingClientRect();
+        return { top: r.top - cardTopOffset, bottom: r.bottom - cardTopOffset };
+      });
+
       const dataUrl = await toJpeg(element, {
         quality: 0.98,
         backgroundColor: '#ffffff',
@@ -143,17 +157,39 @@ export default function PatientDetailPage() {
       const imgWidthIn = usableWidth;
       const imgHeightIn = (img.height / img.width) * imgWidthIn;
 
+      // Map the recorded card spans from source CSS pixels into the same
+      // inches the page-break math below works in.
+      const scale = imgHeightIn / captureHeight;
+      const cardRangesIn = cardRangesPx.map((r) => ({ top: r.top * scale, bottom: r.bottom * scale }));
+
+      // A naive break at exactly `position + usableHeight` doesn't know
+      // where cards start and end — if it lands inside one, pull it back
+      // to that card's top so the whole card moves to the next page
+      // instead of being sliced in half.
+      const findSafeBreak = (naive: number): number => {
+        const capped = Math.min(naive, imgHeightIn);
+        for (const range of cardRangesIn) {
+          if (capped > range.top + 0.02 && capped < range.bottom - 0.02) {
+            return range.top > position ? range.top : capped;
+          }
+        }
+        return capped;
+      };
+
       let heightLeft = imgHeightIn;
       let position = 0;
 
       pdf.addImage(dataUrl, 'JPEG', margin, margin - position, imgWidthIn, imgHeightIn);
-      heightLeft -= usableHeight;
+      let nextBreak = findSafeBreak(position + usableHeight);
+      heightLeft -= nextBreak - position;
+      position = nextBreak;
 
       while (heightLeft > 0) {
-        position += usableHeight;
         pdf.addPage();
         pdf.addImage(dataUrl, 'JPEG', margin, margin - position, imgWidthIn, imgHeightIn);
-        heightLeft -= usableHeight;
+        nextBreak = findSafeBreak(position + usableHeight);
+        heightLeft -= nextBreak - position;
+        position = nextBreak;
       }
 
       pdf.save(`PharmaCare_Summary_${patientName}.pdf`);
