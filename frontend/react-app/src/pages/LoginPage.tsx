@@ -51,7 +51,7 @@ export default function LoginPage() {
       <div className="login-container">
         <div className={`login-card${shake ? ' shake' : ''}`}>
           <div className="logo-area">
-            <span className="material-symbols-rounded logo-icon">local_pharmacy</span>
+            <span className="logo-icon">💊</span>
             <div className="logo-title">PharmaCare AI</div>
             <div className="logo-subtitle">ระบบสนับสนุนการตัดสินใจทางคลินิกสำหรับเภสัชกร</div>
           </div>

@@ -298,7 +298,7 @@ export default function TestCasePage() {
       <header className="tc-header">
         <div className="tc-header-left">
           <div className="tc-header-icon">
-            <span className="material-symbols-rounded" style={{ fontSize: 18, color: '#fff', fontVariationSettings: "'FILL' 1" }}>local_pharmacy</span>
+            <span style={{ fontSize: 16 }}>💊</span>
           </div>
           <div>
             <div className="tc-header-title">Test Case Dashboard</div>

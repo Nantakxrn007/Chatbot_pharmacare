@@ -80,9 +80,7 @@ export default function Sidebar({
       <div className="sidebar-header">
         <Link to="/" className="sidebar-logo">
           <div className="sidebar-logo-icon">
-            <span className="material-symbols-rounded" style={{ fontSize: 24, color: '#1fae86', fontVariationSettings: "'FILL' 1" }}>
-              local_pharmacy
-            </span>
+            <span style={{ fontSize: 20 }}>💊</span>
           </div>
           <div className="logo-text">
             <h1>PharmaCare AI</h1>

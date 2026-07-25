@@ -184,8 +184,31 @@ function renderMd(text: string): string {
 const RED_FLAG_PATTERN = /red\s*flags?|สัญญาณเตือน|ข้อควรระวัง/i;
 const NOTE_HEADING_PATTERN = /ข้อซักถาม|หมายเหตุ/;
 
+// Best-effort emoji per heading topic, matched by keyword — purely
+// decorative, so an unmatched heading just renders without one instead of
+// breaking anything.
+const HEADING_EMOJI: [RegExp, string][] = [
+  [RED_FLAG_PATTERN, '🚨'],
+  [/วินิจฉัย/, '🩺'],
+  [/สรุปอาการ|อาการ(สำคัญ|หลัก)?ที่พบ|อาการนำ/, '📋'],
+  [/รักษาด้วยยา|การใช้ยา(ปฏิชีวนะ|ตามอาการ)?|ยาที่แนะนำ|ยาที่ให้|ยาที่จ่าย/, '💊'],
+  [/ขนาดยา|dose/i, '⚖️'],
+  [/แพ้ยา|ประวัติแพ้/, '⚠️'],
+  [/ดูแลตัวเอง|การดูแลรักษาเบื้องต้น|คำแนะนำ(การดูแล|ทั่วไป)/, '🏠'],
+  [/เฝ้าระวัง|ติดตามอาการ/, '👀'],
+  [/ข้อซักถาม/, '❓'],
+  [/หมายเหตุ/, '📌'],
+  [/ส่งต่อ|พบแพทย์|refer/i, '🏥'],
+];
+
+const DEFAULT_HEADING_EMOJI = '🔹';
+
+function pickHeadingEmoji(text: string): string {
+  const match = HEADING_EMOJI.find(([pattern]) => pattern.test(text));
+  return match ? match[1] : DEFAULT_HEADING_EMOJI;
+}
+
 function applyHeadingBadges(root: HTMLElement) {
-  let counter = 0;
   root.querySelectorAll('h1, h2, h3, h4').forEach((heading) => {
     let text = heading.textContent || '';
     // Strip a leading "N." or hierarchical "3a."/"3b." prefix — the backend
@@ -205,13 +228,13 @@ function applyHeadingBadges(root: HTMLElement) {
       heading.replaceWith(p);
       return;
     }
-    counter += 1;
     if (RED_FLAG_PATTERN.test(text)) {
       heading.classList.add('ai-heading-warning');
     } else if (NOTE_HEADING_PATTERN.test(text)) {
       heading.classList.add('ai-heading-note');
     }
-    heading.innerHTML = `<span class="ai-num-badge">${counter}</span><span>${escapeHtml(text)}</span>`;
+    const emoji = pickHeadingEmoji(text);
+    heading.innerHTML = `<span class="ai-heading-emoji">${emoji}</span><span>${escapeHtml(text)}</span>`;
   });
 }
 
