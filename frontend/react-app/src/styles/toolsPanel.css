@@ -100,6 +100,14 @@
     margin-top: 2px;
 }
 
+.tp-calc-section {
+    border: 1px solid #dce6e1;
+    border-radius: 12px;
+    padding: 14px;
+    background: transparent;
+    box-shadow: 0 2px 8px rgba(16, 30, 40, 0.05);
+}
+
 .tp-field-label {
     font-size: 12px;
     color: #3d5951;
@@ -211,7 +219,11 @@
         position: fixed;
         top: 0;
         right: 0;
-        height: 100vh;
+        /* A plain 100vh reads as 100% of the *zoomed* (.app-layout) height
+           here, not the real viewport — since --ui-zoom is 0.95, that left a
+           visible gap at the bottom of the panel. Dividing by the zoom
+           factor compensates, same trick used for .app-layout/.sidebar. */
+        height: calc(100vh / var(--ui-zoom));
         width: 280px;
         min-width: 280px;
         max-width: 82vw;

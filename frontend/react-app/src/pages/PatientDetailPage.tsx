@@ -56,7 +56,7 @@ export default function PatientDetailPage() {
       navigate('/login', { replace: true });
       return;
     }
-    document.title = `${patientName} — ประวัติผู้ป่วย — PharmaCare AI`;
+    document.title = `${patientName} — ประวัติการรักษา — PharmaCare AI`;
 
     getPatientSummary(patientName)
       .then((data) => {
@@ -265,7 +265,7 @@ export default function PatientDetailPage() {
                   <rect x="8" y="2" width="8" height="4" rx="1" />
                   <path d="M9 4H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-3" />
                 </svg>
-                ประวัติผู้ป่วย
+                ประวัติการรักษา
               </div>
               <div className="pt-nav-subtitle">Patient Dashboard</div>
             </div>
@@ -275,7 +275,7 @@ export default function PatientDetailPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
               <circle cx="9" cy="7" r="4" />
             </svg>
-            รายชื่อทั้งหมด
+            รายการรหัสผู้ป่วยทั้งหมด
           </Link>
         </nav>
       )}
@@ -317,7 +317,7 @@ export default function PatientDetailPage() {
                     <rect x="8" y="2" width="8" height="4" rx="1" />
                     <path d="M9 4H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-3" />
                   </svg>
-                  AI สรุปประวัติผู้ป่วย
+                  AI สรุปประวัติการรักษา
                 </div>
                 <div className="pt-update-info">
                   {summaryUpdatedAt ? `อัปเดตล่าสุด: ${fmtDate(summaryUpdatedAt)}` : 'ยังไม่ได้สร้างสรุป'}
@@ -328,23 +328,21 @@ export default function PatientDetailPage() {
                   <>
                     <button className="pt-export-btn pt-export-btn-pdf" onClick={exportPDF}>
                       <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M14 2v6h6" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
                       โหลด PDF
                     </button>
                     <button className="pt-export-btn pt-export-btn-excel" onClick={exportExcel}>
                       <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M14 2v6h6" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
                       โหลด Excel
                     </button>
                   </>
                 )}
                 <button className="pt-generate-btn" disabled={generating} onClick={handleGenerateSummary}>
-                  <svg width="13" height="13" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2l1.8 5.6L19 9.4l-5.2 1.8L12 17l-1.8-5.8L5 9.4l5.2-1.8z" />
+                  <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                   <span>{summary ? 'อัปเดตสรุป' : 'สร้างสรุป AI'}</span>
                 </button>
@@ -363,7 +361,7 @@ export default function PatientDetailPage() {
               {summary.data_sufficient === false && (
                 <div className="pt-data-note">ข้อมูลยังไม่เพียงพอ — สรุปนี้อ้างอิงจากข้อมูลเบื้องต้นที่มีอยู่เท่านั้น</div>
               )}
-              <div className="pt-card-title">การประเมินความเสี่ยง</div>
+              <div className="pt-card-title">⚠️ การประเมินความเสี่ยง</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
                 <span className={`pt-risk-badge ${riskClasses[riskLevel] || 'pt-risk-low'}`}>
                   {riskLabels[riskLevel] || riskLevel}
@@ -386,7 +384,7 @@ export default function PatientDetailPage() {
 
             <div className="pt-cards-grid">
               <div className="pt-card pt-fade-in">
-                <div className="pt-card-title">โรค/อาการที่พบ</div>
+                <div className="pt-card-title">🩺 โรค/อาการที่พบ</div>
                 <div className="pt-tag-list">
                   {summary.conditions?.length ? (
                     summary.conditions.map((c, i) => <span className="pt-tag pt-tag-condition" key={i}>{c}</span>)
@@ -396,7 +394,7 @@ export default function PatientDetailPage() {
                 </div>
               </div>
               <div className="pt-card pt-fade-in">
-                <div className="pt-card-title">ยาที่แนะนำ/จ่ายแล้ว</div>
+                <div className="pt-card-title">💊 ยาที่แนะนำ/จ่ายแล้ว</div>
                 <div className="pt-tag-list">
                   {summary.medications_given?.length ? (
                     summary.medications_given.map((m, i) => <span className="pt-tag pt-tag-med" key={i}>{m}</span>)
@@ -406,7 +404,7 @@ export default function PatientDetailPage() {
                 </div>
               </div>
               <div className="pt-card pt-fade-in">
-                <div className="pt-card-title">ประวัติแพ้ยา</div>
+                <div className="pt-card-title">🚫 ประวัติแพ้ยา</div>
                 <div className="pt-tag-list">
                   {summary.allergies?.length ? (
                     summary.allergies.map((a, i) => <span className="pt-tag pt-tag-allergy" key={i}>{a}</span>)
@@ -416,7 +414,7 @@ export default function PatientDetailPage() {
                 </div>
               </div>
               <div className="pt-card pt-fade-in" style={{ display: 'flex', flexDirection: 'column' }}>
-                <div className="pt-card-title">สถิติ</div>
+                <div className="pt-card-title">📊 สถิติ</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', flex: 1 }}>
                   <div style={{ textAlign: 'center', padding: '0.5rem', borderRadius: 8, background: '#f8fafc' }}>
                     <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#10b981' }}>{(summary.conditions || []).length}</div>
@@ -431,12 +429,12 @@ export default function PatientDetailPage() {
             </div>
 
             <div className="pt-card pt-card-full" style={{ marginBottom: '1rem' }}>
-              <div className="pt-card-title">สรุปภาพรวม</div>
+              <div className="pt-card-title">📌 สรุปภาพรวม</div>
               <p className="pt-summary-text">{summary.overall_summary || 'ไม่มีข้อมูล'}</p>
             </div>
 
             <div className="pt-card pt-card-full" style={{ marginBottom: '1rem' }}>
-              <div className="pt-card-title">ลำดับเวลา</div>
+              <div className="pt-card-title">🗓️ ลำดับเวลา</div>
               {summary.timeline?.length ? (
                 <div className="pt-timeline">
                   {summary.timeline.map((t, i) => (
@@ -453,7 +451,7 @@ export default function PatientDetailPage() {
             </div>
 
             <div className="pt-card pt-card-full" style={{ marginBottom: '1.5rem' }}>
-              <div className="pt-card-title">คำแนะนำการติดตาม</div>
+              <div className="pt-card-title">💡 คำแนะนำการติดตาม</div>
               {summary.recommendations?.length ? (
                 <ul className="pt-rec-list">
                   {summary.recommendations.map((r, i) => (
@@ -474,12 +472,7 @@ export default function PatientDetailPage() {
         )}
 
         <div className="pt-card pt-card-full">
-          <div className="pt-card-title">
-            <svg width="15" height="15" fill="none" stroke="#1fae86" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-              <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" />
-            </svg>
-            ประวัติการสนทนา
-          </div>
+          <div className="pt-card-title">💬 ประวัติการสนทนา</div>
           <div>
             {sessions === null ? null : sessions.length === 0 ? (
               <div className="pt-empty-state">

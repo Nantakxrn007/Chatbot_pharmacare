@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import '../styles/toolsPanel.css';
 import { getDrugs } from '../lib/api';
 
-const REFERENCES = [
+const REFERENCES: { source: string; title?: string; desc: string }[] = [
   { source: 'AAFP 2022', desc: 'แนวทาง URI (อเมริกา)' },
   { source: 'Thai URI guideline', desc: 'แนวทาง URI เด็ก (ไทย)' },
-  { source: 'Dose supportive', desc: 'ขนาดยาสนับสนุนการรักษา' },
+  { source: 'Dose supportive', title: 'Supportive Drug list', desc: 'รายการยา และขนาดยา' },
 ];
 
 // Used only if /api/drugs fails to load (network error, server down, etc.)
@@ -79,13 +79,14 @@ export default function ToolsPanel({ onOpenReference, onSendMessage, collapsed, 
         <div key={ref.source} className="tp-ref-item" onClick={() => onOpenReference(ref.source, '', 'internal', '')}>
           <span className="material-symbols-rounded">picture_as_pdf</span>
           <div>
-            <div className="tp-ref-title">{ref.source}</div>
+            <div className="tp-ref-title">{ref.title ?? ref.source}</div>
             <div className="tp-ref-desc">{ref.desc}</div>
           </div>
         </div>
       ))}
 
       <div className="tp-label">DRUG CALCULATOR</div>
+      <div className="tp-calc-section">
       <div className="tp-field-label">ยา</div>
       <div className="tp-combobox">
         <input
@@ -132,6 +133,7 @@ export default function ToolsPanel({ onOpenReference, onSendMessage, collapsed, 
         <span className="material-symbols-rounded">calculate</span>
         คำนวณขนาดยา
       </button>
+      </div>
       </div>
     </aside>
   );

@@ -65,7 +65,7 @@ export default function PatientsPage() {
               <path d="M23 21v-2a4 4 0 00-3-3.87" />
               <path d="M16 3.13a4 4 0 010 7.75" />
             </svg>
-            รายชื่อผู้ป่วย
+            รายการรหัสผู้ป่วย
           </div>
           <div className="pp-nav-subtitle">Patient Directory</div>
         </div>
@@ -74,15 +74,15 @@ export default function PatientsPage() {
       <div className="pp-container">
         <div className="pp-stats-bar">
           <div className="pp-stat-card">
-            <div className="pp-stat-value" style={{ color: '#1fae86' }}>{patients.length || 0}</div>
+            <div className="pp-stat-value" style={{ color: '#10b981' }}>{patients.length || 0}</div>
             <div className="pp-stat-label">ผู้ป่วยทั้งหมด</div>
           </div>
           <div className="pp-stat-card">
-            <div className="pp-stat-value" style={{ color: '#2f6fbf' }}>{totalSessions || 0}</div>
+            <div className="pp-stat-value" style={{ color: '#0891b2' }}>{totalSessions || 0}</div>
             <div className="pp-stat-label">ครั้งที่ปรึกษา</div>
           </div>
           <div className="pp-stat-card">
-            <div className="pp-stat-value" style={{ color: '#b5790a' }}>{withSummary || 0}</div>
+            <div className="pp-stat-value" style={{ color: '#7c3aed' }}>{withSummary || 0}</div>
             <div className="pp-stat-label">มี AI สรุปแล้ว</div>
           </div>
         </div>
@@ -96,7 +96,7 @@ export default function PatientsPage() {
             <input
               type="text"
               className="pp-search-input"
-              placeholder="ค้นหาชื่อผู้ป่วย..."
+              placeholder="ค้นหารหัสผู้ป่วย..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -111,7 +111,7 @@ export default function PatientsPage() {
           ) : filtered.length === 0 ? (
             <div className="pp-empty-state" style={{ gridColumn: '1/-1' }}>
               <h3>ยังไม่มีผู้ป่วยในระบบ</h3>
-              <p>กลับไปหน้าแชทแล้วกดปุ่ม "เคสใหม่" เพื่อเริ่มบันทึกประวัติผู้ป่วย</p>
+              <p>กลับไปหน้าแชทแล้วกดปุ่ม "แชทใหม่" เพื่อเริ่มบันทึกประวัติการรักษา</p>
             </div>
           ) : (
             filtered.map((p, idx) => {

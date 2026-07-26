@@ -93,7 +93,7 @@ export default function Sidebar({
         <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />
         </svg>
-        เคสใหม่
+        แชทใหม่
       </button>
 
       <div className="search-box">
@@ -104,12 +104,12 @@ export default function Sidebar({
         <input type="text" id="searchInput" placeholder="ค้นหาแชท... (Ctrl+K)" onChange={(e) => onSearch(e.target.value)} />
       </div>
 
-      <div className="session-list-label">ประวัติ</div>
+      <div className="session-list-label">ประวัติแชท</div>
       <div className="session-list">
         {sessions.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '2rem 0', color: '#8aaba5', fontSize: '0.75rem' }}>
             <p>ยังไม่มีแชท</p>
-            <p style={{ marginTop: '0.3rem' }}>กดปุ่ม "เคสใหม่" เพื่อเริ่มต้น</p>
+            <p style={{ marginTop: '0.3rem' }}>กดปุ่ม "แชทใหม่" เพื่อเริ่มต้น</p>
           </div>
         ) : (
           groupSessionsByDay(sessions).map((group, groupIndex) => (
@@ -124,7 +124,11 @@ export default function Sidebar({
                     className={`session-item${active ? ' active' : ''}`}
                     onClick={() => onSwitch(s.id)}
                   >
-                    <div className="avatar">{label.charAt(0).toUpperCase()}</div>
+                    <div className="avatar">
+                      <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                    </div>
                     <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                       <span className="title">{label}</span>
                       <span className="meta">{formatDate(s.updated_at)}</span>
@@ -163,10 +167,9 @@ export default function Sidebar({
       </div>
 
       <div className="sidebar-footer">
-        <a href="#" className="sidebar-nav-link" onClick={(e) => { e.preventDefault(); onOpenGlobalTokens(); }}>
-          <svg width="16" height="16" fill="none" stroke="#4a6660" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 7v5l3 3" />
+        <a href="#" className="sidebar-nav-link" style={{ color: '#f59e0b' }} onClick={(e) => { e.preventDefault(); onOpenGlobalTokens(); }}>
+          <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+            <path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           ภาพรวม Token ทั้งระบบ
         </a>
@@ -177,14 +180,7 @@ export default function Sidebar({
             <path d="M23 21v-2a4 4 0 00-3-3.87" />
             <path d="M16 3.13a4 4 0 010 7.75" />
           </svg>
-          รายชื่อผู้ป่วยทั้งหมด
-        </Link>
-        <Link to="/testcase" className="sidebar-nav-link">
-          <svg width="16" height="16" fill="none" stroke="#4a6660" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-            <rect x="8" y="2" width="8" height="4" rx="1" />
-            <path d="M9 4H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-3" />
-          </svg>
-          Test Cases
+          รายการรหัสผู้ป่วยทั้งหมด
         </Link>
         <div className="user-section">
           <div className="user-avatar">{displayName.charAt(0).toUpperCase()}</div>

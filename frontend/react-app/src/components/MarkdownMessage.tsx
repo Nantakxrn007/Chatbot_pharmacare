@@ -23,14 +23,32 @@ function escapeHtml(text: string): string {
 // The run-up is capped at 100 chars with no period so it can't bleed into
 // an unrelated later sentence that happens to contain a level word.
 const PROBABILITY_PATTERN =
-  /โอกาส((?:เป็น|จะเป็น)?\s*:?\s*)([^\n.]{0,100}?)\*{0,2}(สูงมาก|ปานกลางถึงสูง|ปานกลาง|กลาง|สูง|ต่ำ)\*{0,2}/g;
+  /โอกาส((?:เป็น|จะเป็น)?\s*:?\s*)([^\n.]{0,100}?)\*{0,2}(สูงมาก|ปานกลางถึงสูง|ปานกลาง|กลาง|สูง|ต่ำมาก|ต่ำ)\*{0,2}/g;
+// สูงมาก and สูง share the same red — a colleague flagged a case where
+// "สูงมาก" slipped through in a different color than "สูง", which reads as
+// two different risk tiers when they're meant to be the same "high" signal.
+// Same idea for ต่ำมาก/ต่ำ sharing green — the dot count (below) is what
+// still tells the two apart, not the color.
 const PROBABILITY_CLASS: Record<string, string> = {
-  สูงมาก: 'ai-prob-badge ai-prob-vhigh',
+  สูงมาก: 'ai-prob-badge ai-prob-high',
   สูง: 'ai-prob-badge ai-prob-high',
   ปานกลางถึงสูง: 'ai-prob-badge ai-prob-high',
   ปานกลาง: 'ai-prob-badge ai-prob-mid',
   กลาง: 'ai-prob-badge ai-prob-mid',
   ต่ำ: 'ai-prob-badge ai-prob-low',
+  ต่ำมาก: 'ai-prob-badge ai-prob-low',
+};
+
+// Dot count per level, highest tier first — each step down drops one dot
+// out of a 4-dot bar (สูงมาก full, ต่ำมาก empty).
+const PROBABILITY_DOTS: Record<string, number> = {
+  สูงมาก: 4,
+  สูง: 3,
+  ปานกลางถึงสูง: 3,
+  ปานกลาง: 2,
+  กลาง: 2,
+  ต่ำ: 1,
+  ต่ำมาก: 0,
 };
 
 // Dosage amounts (e.g. "500 mg", "1,000 mg", "325-650 mg", "80-90 มก./กก./วัน")
@@ -121,10 +139,24 @@ const DOSE_ALTERNATIVE_SEPARATOR_PATTERN =
 const CAUTION_PATTERN = /ข้อควรระวัง/g;
 const PROHIBIT_PATTERN = /ห้าม/g;
 
+// The backend tags the opening case-classification line with an internal
+// category number ("เคสผู้ป่วยใหม่ (ประเภท 2)") — meaningful to us, not to
+// whoever's reading the answer, since there's no legend anywhere explaining
+// what type 1/2/3 mean. Drop just the "(ประเภท N)" parenthetical, keep the
+// rest of the sentence.
+const CASE_TYPE_LABEL_PATTERN = /\s*\(ประเภท\s*\d+\)/g;
+
+// Highlight an actual fever reading in "สรุปอาการ" — the fact most likely
+// to get missed on a quick read. Requires a negation guard ("ไม่มีไข้" is
+// reassuring, not an alert) and a number attached — a bare "มีไข้" with no
+// reading isn't worth flagging.
+const FEVER_PATTERN = /(?<!ไม่\s*)ไข้(?:สูง|ต่ำ)?\s*\d+(?:\.\d+)?\s*(?:°|องศา)(?:เซลเซียส)?/g;
+
 function renderMd(text: string): string {
   if (!text) return '';
   try {
-    let processed = text.replace(BOLD_ONLY_LINE_PATTERN, (match, inner: string) =>
+    let processed = text.replace(CASE_TYPE_LABEL_PATTERN, '');
+    processed = processed.replace(BOLD_ONLY_LINE_PATTERN, (match, inner: string) =>
       SCORE_LINE_PATTERN.test(inner) || TREATMENT_SUBLABEL_PATTERN.test(inner) ? match : `### ${inner}`
     );
     processed = processed.replace(REASON_SEPARATOR_PATTERN, '\n');
@@ -137,11 +169,11 @@ function renderMd(text: string): string {
         const cls = PROBABILITY_CLASS[level] || 'ai-prob-badge';
         if (!runup.trim()) {
           // Direct mention ("โอกาส: สูง" / "โอกาสสูง") — compact badge.
-          return `<span class="${cls}">โอกาส: ${escapeHtml(level)}</span>`;
+          return `<span class="${cls}" data-prob-level="${escapeHtml(level)}">โอกาส: ${escapeHtml(level)}</span>`;
         }
         // Level word appears after a run-up description (e.g. a diagnosis
         // name) — keep that text as-is and just highlight the level word.
-        return `โอกาส${lead}${runup}<span class="${cls}">${escapeHtml(level)}</span>`;
+        return `โอกาส${lead}${runup}<span class="${cls}" data-prob-level="${escapeHtml(level)}">${escapeHtml(level)}</span>`;
       }
     );
 
@@ -252,6 +284,109 @@ function applyNoteHighlights(root: HTMLElement) {
   });
 }
 
+// A fever reading only gets highlighted inside the "สรุปอาการ" (symptom
+// summary) section — the same word shows up harmlessly elsewhere in the
+// answer (dose notes, red-flag lists), and highlighting those too just adds
+// noise where it isn't a new fact worth a second look.
+function applySymptomHighlights(root: HTMLElement) {
+  root.querySelectorAll('h1, h2, h3, h4').forEach((heading) => {
+    if (!/สรุปอาการ/.test(heading.textContent || '')) return;
+    let node = heading.nextElementSibling;
+    while (node && !/^H[1-4]$/.test(node.tagName)) {
+      node.innerHTML = node.innerHTML.replace(FEVER_PATTERN, (m) => `<span class="ai-alert-highlight">${m}</span>`);
+      node = node.nextElementSibling;
+    }
+  });
+}
+
+// The AI's "การวินิจฉัยเบื้องต้น" (initial diagnosis) list stays exactly as
+// the AI wrote it (plain badge, no dot/dot-bar clutter) — the dot + 4-dot
+// probability bar only shows up in a separate recap card appended below the
+// list, so the original answer text is never touched.
+const PROB_LEVELS = ['high', 'mid', 'low'] as const;
+
+function buildDotBar(level: (typeof PROB_LEVELS)[number], count: number): HTMLElement {
+  const bar = document.createElement('span');
+  bar.className = 'ai-prob-dotbar';
+  for (let i = 0; i < 4; i++) {
+    const d = document.createElement('span');
+    d.className = `ai-prob-dotbar-item${i < count ? ` filled ai-prob-dot-${level}` : ''}`;
+    bar.appendChild(d);
+  }
+  return bar;
+}
+
+function applyDiagnosisCard(root: HTMLElement) {
+  root.querySelectorAll('h1, h2, h3, h4').forEach((heading) => {
+    if (!/วินิจฉัย/.test(heading.textContent || '')) return;
+
+    let node = heading.nextElementSibling;
+    let list: Element | null = null;
+    let lastSibling: Element | null = null;
+    while (node && !/^H[1-4]$/.test(node.tagName)) {
+      if (!list && /^(UL|OL)$/.test(node.tagName)) list = node;
+      lastSibling = node;
+      node = node.nextElementSibling;
+    }
+    if (!list || !lastSibling) return;
+
+    const rows: HTMLElement[] = [];
+    list.querySelectorAll(':scope > li').forEach((li) => {
+      const strong = li.querySelector('strong');
+      const badge = li.querySelector('.ai-prob-badge');
+      const level = badge && PROB_LEVELS.find((l) => badge.classList.contains(`ai-prob-${l}`));
+      if (!strong || !badge || !level) return;
+
+      const row = document.createElement('div');
+      row.className = 'ai-diagnosis-card-row';
+
+      const dot = document.createElement('span');
+      dot.className = `ai-prob-dot ai-prob-dot-${level}`;
+      row.appendChild(dot);
+
+      const name = document.createElement('span');
+      name.className = 'ai-diagnosis-card-name';
+      name.textContent = strong.textContent || '';
+      row.appendChild(name);
+
+      const word = badge.getAttribute('data-prob-level') || '';
+      const count = PROBABILITY_DOTS[word];
+      if (count !== undefined) row.appendChild(buildDotBar(level, count));
+
+      row.appendChild(badge.cloneNode(true));
+      rows.push(row);
+    });
+    if (!rows.length) return;
+
+    const card = document.createElement('div');
+    card.className = 'ai-diagnosis-card';
+    const title = document.createElement('div');
+    title.className = 'ai-diagnosis-card-title';
+    title.textContent = 'สรุปการวินิจฉัย';
+    card.appendChild(title);
+    rows.forEach((row) => card.appendChild(row));
+
+    // Static color-key row (สูงมาก/สูง/ปานกลาง/ต่ำ/ต่ำมาก) — labels only, not
+    // clickable filters, just explains what each dot/badge color means.
+    const legend = document.createElement('div');
+    legend.className = 'ai-diagnosis-legend';
+    const legendLabel = document.createElement('span');
+    legendLabel.className = 'ai-diagnosis-legend-label';
+    legendLabel.textContent = 'โอกาสเป็น:';
+    legend.appendChild(legendLabel);
+    (['สูงมาก', 'สูง', 'ปานกลาง', 'ต่ำ', 'ต่ำมาก'] as const).forEach((word) => {
+      const pillLevel = PROBABILITY_CLASS[word].split(' ')[1].replace('ai-prob-', '') as (typeof PROB_LEVELS)[number];
+      const pill = document.createElement('span');
+      pill.className = `ai-prob-badge ai-prob-${pillLevel}`;
+      pill.textContent = word;
+      legend.appendChild(pill);
+    });
+    card.appendChild(legend);
+
+    lastSibling!.after(card);
+  });
+}
+
 interface Props {
   content: string;
   onOpenSource: (source: string, page: string, type: string, heading: string) => void;
@@ -283,6 +418,8 @@ export default function MarkdownMessage({ content, onOpenSource, className }: Pr
     if (!el) return;
     applyHeadingBadges(el);
     applyNoteHighlights(el);
+    applyDiagnosisCard(el);
+    applySymptomHighlights(el);
   }, [content]);
 
   return (

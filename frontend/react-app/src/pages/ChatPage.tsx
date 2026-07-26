@@ -30,32 +30,32 @@ const QUICK_ACTIONS = [
     desc: 'เด็ก 3 ขวบ น้ำมูกใส ไอ ไข้ 37.8',
     q: 'เด็ก 3 ขวบ เป็นหวัด น้ำมูกใส ไอเล็กน้อย ไข้ 37.8 ควรให้ยาอะไร?',
     icon: 'sick',
-    iconColor: '#dc4c64',
-    iconBg: '#fdeaea',
+    iconColor: '#10b981',
+    iconBg: 'rgba(16, 185, 129, 0.12)',
   },
   {
     label: 'เจ็บคอ Centor 4',
     desc: 'ต่อมทอนซิลบวมมีหนอง ต้อง ATB?',
     q: 'ผู้ใหญ่เจ็บคอมาก มีไข้สูง ต่อมทอนซิลบวมมีหนอง Modified Centor = 4 คะแนน ควรให้ยาอะไร?',
     icon: 'record_voice_over',
-    iconColor: '#2f6fbf',
-    iconBg: '#e6f0fb',
+    iconColor: '#0891b2',
+    iconBg: 'rgba(8, 145, 178, 0.12)',
   },
   {
     label: 'หูอักเสบ AOM',
     desc: 'เด็ก 2 ขวบ ปวดหู ไข้ 38.5',
     q: 'เด็ก 2 ขวบ ปวดหูข้างขวา ไข้ 38.5 สงสัย AOM ควรรักษาอย่างไร?',
     icon: 'hearing',
-    iconColor: '#b5790a',
-    iconBg: '#fdf3e0',
+    iconColor: '#7c3aed',
+    iconBg: 'rgba(124, 58, 237, 0.12)',
   },
   {
     label: 'ไซนัสอักเสบ',
     desc: 'น้ำมูกข้นเหลืองเขียว 12 วัน',
     q: 'ผู้ใหญ่ น้ำมูกข้นเหลืองเขียว ปวดหน้าผาก 12 วัน สงสัยไซนัสอักเสบ',
     icon: 'medical_services',
-    iconColor: '#c2660a',
-    iconBg: '#fdece0',
+    iconColor: '#d97706',
+    iconBg: 'rgba(217, 119, 6, 0.12)',
   },
 ];
 
@@ -425,7 +425,7 @@ export default function ChatPage() {
     navigator.clipboard.writeText(text).then(() => showToast('คัดลอกแล้ว ✓'));
   };
 
-  const chatTitle = currentPatientName || (currentSessionId ? 'แชท' : 'เคสใหม่');
+  const chatTitle = currentPatientName || (currentSessionId ? 'แชท' : 'หน้าหลัก');
   const chatSubtitle = currentPatientName
     ? (updatedAtLabel ? `อัปเดตล่าสุด: ${updatedAtLabel}` : 'ผู้ป่วย')
     : 'ระบบผู้ช่วยเภสัชกร PharmaCare AI';
@@ -463,15 +463,15 @@ export default function ChatPage() {
 
           <div className="top-bar-right">
             {currentSessionId && (
-              <button className="top-bar-action" onClick={() => setTokenSummaryOpen(true)} title="ค่าใช้จ่ายแชทนี้">
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>payments</span>
+              <button className="top-bar-action top-bar-action-token" onClick={() => setTokenSummaryOpen(true)} title="ค่าใช้จ่ายแชทนี้">
+                <span>🪙</span>
                 สรุป Token
               </button>
             )}
             {updateDashboardHref && (
-              <Link className="top-bar-action" to={updateDashboardHref}>
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>history</span>
-                ประวัติคนไข้
+              <Link className="top-bar-action top-bar-action-patient" to={updateDashboardHref}>
+                <span>📄</span>
+                ประวัติการรักษา
               </Link>
             )}
             <button className="tools-mobile-btn" onClick={() => setToolsPanelMobileOpen(true)} title="เปิดแผงเครื่องมือ">
@@ -487,14 +487,10 @@ export default function ChatPage() {
         <div className="chat-messages" ref={chatMessagesRef}>
           {showWelcome ? (
             <div className="welcome">
-              <div className="welcome-icon">
-                <span className="material-symbols-rounded" style={{ fontSize: 28, color: '#fff', fontVariationSettings: "'FILL' 1" }}>
-                  local_pharmacy
-                </span>
-              </div>
+              <div className="welcome-icon">🏥</div>
               <h2>ยินดีต้อนรับสู่ PharmaCare AI</h2>
-              <p style={{ marginBottom: 2 }}>ผู้ช่วยเภสัชกรอัจฉริยะ ให้คำปรึกษาด้านยาและการรักษาโรคระบบทางเดินหายใจส่วนบน</p>
-              <div className="welcome-note">อ้างอิงจาก AAFP 2022 และแนวทางการดูแลรักษาโรคติดเชื้อเฉียบพลันระบบหายใจในเด็ก พ.ศ. 2562</div>
+              <p style={{ marginBottom: 2 }}>ผู้ช่วยสนับสนุนเภสัชกรในการซักประวัติ และคัดกรองโรคติดเชื้อทางเดินหายใจส่วนบนเบื้องต้น</p>
+              <div className="welcome-note">กดปุ่ม <strong>"แชทใหม่"</strong> เพื่อเริ่มการใช้งาน</div>
               <div className="quick-actions">
                 {QUICK_ACTIONS.map((qa) => (
                   <button className="quick-btn" key={qa.label} onClick={() => quickAsk(qa.q)}>
@@ -556,9 +552,7 @@ export default function ChatPage() {
           <div className="suggested-questions flex flex-wrap gap-1.5" style={{ display: showSuggested ? 'flex' : 'none', position: 'relative' }}>
             <div className="relative group" style={{ zIndex: 50 }}>
               <button className="text-xs px-2.5 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 transition-colors shadow-sm flex items-center gap-1">
-                <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
-                </svg>
+                <span>✨</span>
                 สรุปเคสนี้
                 <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
@@ -596,19 +590,14 @@ export default function ChatPage() {
               className="text-xs px-2.5 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 transition-colors shadow-sm flex items-center gap-1"
               onClick={() => quickAsk('คนไข้รายนี้มีประวัติการแพ้ยาหรือโรคประจำตัวอะไรที่ต้องระวังไหม?')}
             >
-              <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-8.25 3.75h.008v.008h-.008v-.008Z" />
-              </svg>
+              <span>⚠️</span>
               โรคประจำตัว / แพ้ยา
             </button>
             <button
               className="text-xs px-2.5 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 transition-colors shadow-sm flex items-center gap-1"
               onClick={() => quickAsk('ขนาดยาที่ต้องใช้สำหรับคนไข้รายนี้ ควรเป็นเท่าไหร่?')}
             >
-              <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="m8.5 8.5 7 7" />
-              </svg>
+              <span>💊</span>
               ขนาดยาที่แนะนำ
             </button>
           </div>
@@ -617,7 +606,7 @@ export default function ChatPage() {
             <textarea
               ref={textareaRef}
               rows={1}
-              placeholder="เล่าอาการผู้ป่วยได้เลย"
+              placeholder="กรอกอาการผู้ป่วย หรือถามคำถามด้านยาได้เลย"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
