@@ -2012,6 +2012,12 @@ _PHYSICAL_REF_PAGES: dict[str, set[str]] = {
     #  19=common cold refs, 26-27=pharyngitis refs, 42-46=sinusitis refs, 58=AOM refs, 71-72=retropharyngeal refs
     "URI": {"19", "26", "27", "42", "43", "44", "45", "46", "58", "71", "72"},
 }
+# บางเลขหน้าที่โมเดล "อ้างเนื้อคลินิกจริง" แต่ตรงกับหน้า PDF อ้างอิงพอดี (จาก offset) -> ไม่ตัดทิ้ง
+# แต่ "แก้เป็นหน้า PDF จริงของเนื้อนั้น" เพื่อให้ label มีเลขหน้า + กดแล้วตรงเนื้อ (ยืนยันจากการอ่าน PDF)
+#   URI meta p58 = แผนภูมิ AOM (URI_0075) ซึ่งอยู่หน้า PDF จริงหน้า 57
+_PAGE_REMAP: dict[str, dict[str, str]] = {
+    "URI": {"58": "57"},
+}
 _REF_PAGE_CACHE: dict[str, set[str]] | None = None
 _CANON_TO_SRC = {"AAFP": "AAFP", "URI เด็ก 2562": "URI", "Dose": "Dose"}
 
@@ -2079,9 +2085,14 @@ def _canon_one_ref(part: str, dose_pages: list[str] | None = None) -> str | None
             n = int(numtok)
             if 1 <= n <= 100 and numtok not in pages:   # 1-100 = เลขหน้าจริง; ปี/journal (>100) ตัดทิ้ง
                 pages.append(numtok)
-    # backstop: ตัดเลขหน้าที่เป็น "หน้าเอกสารอ้างอิง/รายการล้วน" ทิ้ง แม้โมเดลจะเดามาเอง
-    # (เช่น AAFP หน้า 9 = References) -> กันลิงก์ไปโผล่หน้าเอกสารอ้างอิงตรงตาม feedback
-    ref_pages = _reference_only_pages().get(_CANON_TO_SRC.get(src, src), set())
+    had_pages = bool(pages)
+    src_key = _CANON_TO_SRC.get(src, src)
+    # (1) remap เลขหน้าที่ตรงกับหน้า PDF อ้างอิงพอดี -> หน้า PDF จริงของเนื้อคลินิกนั้น (label มีเลขหน้า+กดตรง)
+    remap = _PAGE_REMAP.get(src_key, {})
+    if remap:
+        pages = list(dict.fromkeys(remap.get(p, p) for p in pages))
+    # (2) backstop: ตัดเลขหน้าที่ (เมื่อเปิดเป็นหน้า PDF จริง) เป็นหน้าเอกสารอ้างอิง แม้โมเดลจะเดามาเอง
+    ref_pages = _reference_only_pages().get(src_key, set())
     if ref_pages:
         pages = [p for p in pages if p not in ref_pages]
     # Dose ที่ไม่มีเลขหน้า -> เติมหน้าจาก Context (ถ้ามีหน้า Dose ที่ชัดเจน) กันลิงก์เด้งหน้าแรก
@@ -2089,6 +2100,10 @@ def _canon_one_ref(part: str, dose_pages: list[str] | None = None) -> str | None
         pages = [dose_pages[0]]
     if pages:
         return f"[Ref: {src}, หน้า {', '.join(pages)}]"
+    # โมเดลเคยระบุหน้า แต่ถูกตัดหมดเพราะเป็นหน้าเอกสารอ้างอิง -> ทิ้งทั้งก้อน (อย่าโชว์ label ไร้เลขหน้า)
+    # เนื้อนั้นถูกอ้างซ้ำผ่านหน้าที่ถูกต้องอื่นอยู่แล้ว (เช่น AOM: หน้า 53/56/57)
+    if had_pages:
+        return None
     return f"[Ref: {src}]"
 
 
@@ -2104,9 +2119,15 @@ def _sanitize_citations(answer: str, dose_pages: list[str] | None = None) -> str
         if "http" in inner.lower():
             return f"[Ref: {inner.strip()}]"
         # แยก merge: ';' หรือ 'Ref:' ซ้อน
-        subparts = _re.split(r";|(?:^|\s)Ref:\s*", inner)
-        outs = [r for r in (_canon_one_ref(sp, dose_pages) for sp in subparts) if r]
-        return " ".join(outs) if outs else m.group(0)
+        subparts = [sp for sp in _re.split(r";|(?:^|\s)Ref:\s*", inner) if sp.strip()]
+        results = [_canon_one_ref(sp, dose_pages) for sp in subparts]
+        outs = [r for r in results if r]
+        if outs:
+            return " ".join(outs)
+        # ทุกก้อนถูกตัดทิ้ง (เป็นหน้าเอกสารอ้างอิงล้วน) -> ลบทั้ง citation ออก (อย่าคืนของเดิมที่มีหน้าอ้างอิง)
+        if results:
+            return ""
+        return m.group(0)
 
     return _REF_FULL_RE.sub(_repl, answer)
 
