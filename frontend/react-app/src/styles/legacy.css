@@ -1200,7 +1200,11 @@
             margin: 0 0.15rem;
         }
 
-        .ai-prob-vhigh,
+        .ai-prob-vhigh {
+            background: #fecaca;
+            color: #991b1b;
+        }
+
         .ai-prob-high {
             background: #fee2e2;
             color: #b91c1c;
@@ -1216,6 +1220,11 @@
             color: #166534;
         }
 
+        .ai-prob-vlow {
+            background: #f0fdf4;
+            color: #15803d;
+        }
+
         .ai-prob-dot {
             display: inline-block;
             width: 8px;
@@ -1223,6 +1232,10 @@
             border-radius: 50%;
             margin-right: 6px;
             flex-shrink: 0;
+        }
+
+        .ai-prob-dot-vhigh {
+            background: #b91c1c;
         }
 
         .ai-prob-dot-high {
@@ -1235,6 +1248,10 @@
 
         .ai-prob-dot-low {
             background: #16a34a;
+        }
+
+        .ai-prob-dot-vlow {
+            background: #4ade80;
         }
 
         .ai-prob-dotbar {
@@ -1251,6 +1268,10 @@
             background: #e2e6e5;
         }
 
+        .ai-prob-dotbar-item.filled.ai-prob-dot-vhigh {
+            background: #b91c1c;
+        }
+
         .ai-prob-dotbar-item.filled.ai-prob-dot-high {
             background: #dc2626;
         }
@@ -1261,6 +1282,10 @@
 
         .ai-prob-dotbar-item.filled.ai-prob-dot-low {
             background: #16a34a;
+        }
+
+        .ai-prob-dotbar-item.filled.ai-prob-dot-vlow {
+            background: #4ade80;
         }
 
         .ai-diagnosis-card {

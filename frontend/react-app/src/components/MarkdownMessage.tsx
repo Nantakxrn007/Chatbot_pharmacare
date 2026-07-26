@@ -24,32 +24,34 @@ function escapeHtml(text: string): string {
 // an unrelated later sentence that happens to contain a level word.
 const PROBABILITY_PATTERN =
   /โอกาส((?:เป็น|จะเป็น)?\s*:?\s*)([^\n.]{0,100}?)\*{0,2}(สูงมาก|ปานกลางถึงสูง|ปานกลาง|กลาง|สูง|ต่ำมาก|ต่ำ)\*{0,2}/g;
-// สูงมาก and สูง share the same red — a colleague flagged a case where
-// "สูงมาก" slipped through in a different color than "สูง", which reads as
-// two different risk tiers when they're meant to be the same "high" signal.
-// Same idea for ต่ำมาก/ต่ำ sharing green — the dot count (below) is what
-// still tells the two apart, not the color.
+// สูงมาก/สูง are both "high" red and ต่ำ/ต่ำมาก are both "low" green, but
+// each pair now gets a slightly different shade (vhigh deeper than high,
+// low deeper than vlow) so the two aren't *visually* identical — the dot
+// count is still what actually tells them apart at a glance.
 const PROBABILITY_CLASS: Record<string, string> = {
-  สูงมาก: 'ai-prob-badge ai-prob-high',
+  สูงมาก: 'ai-prob-badge ai-prob-vhigh',
   สูง: 'ai-prob-badge ai-prob-high',
   ปานกลางถึงสูง: 'ai-prob-badge ai-prob-high',
   ปานกลาง: 'ai-prob-badge ai-prob-mid',
   กลาง: 'ai-prob-badge ai-prob-mid',
   ต่ำ: 'ai-prob-badge ai-prob-low',
-  ต่ำมาก: 'ai-prob-badge ai-prob-low',
+  ต่ำมาก: 'ai-prob-badge ai-prob-vlow',
 };
 
-// Dot count per level, highest tier first — each step down drops one dot
-// out of a 4-dot bar (สูงมาก full, ต่ำมาก empty).
+// Dot count per level, highest tier first, out of a 5-dot bar — even the
+// lowest tier (ต่ำมาก) still gets 1 dot, never 0. A likelihood the AI is
+// still listing as a differential is never "nothing," so an empty dot bar
+// would read wrong regardless of how unlikely it is.
 const PROBABILITY_DOTS: Record<string, number> = {
-  สูงมาก: 4,
-  สูง: 3,
-  ปานกลางถึงสูง: 3,
-  ปานกลาง: 2,
-  กลาง: 2,
-  ต่ำ: 1,
-  ต่ำมาก: 0,
+  สูงมาก: 5,
+  สูง: 4,
+  ปานกลางถึงสูง: 4,
+  ปานกลาง: 3,
+  กลาง: 3,
+  ต่ำ: 2,
+  ต่ำมาก: 1,
 };
+const PROBABILITY_DOT_TOTAL = 5;
 
 // Dosage amounts (e.g. "500 mg", "1,000 mg", "325-650 mg", "80-90 มก./กก./วัน")
 // get a light highlight chip so they stand out from the surrounding
@@ -303,12 +305,12 @@ function applySymptomHighlights(root: HTMLElement) {
 // the AI wrote it (plain badge, no dot/dot-bar clutter) — the dot + 4-dot
 // probability bar only shows up in a separate recap card appended below the
 // list, so the original answer text is never touched.
-const PROB_LEVELS = ['high', 'mid', 'low'] as const;
+const PROB_LEVELS = ['vhigh', 'high', 'mid', 'low', 'vlow'] as const;
 
 function buildDotBar(level: (typeof PROB_LEVELS)[number], count: number): HTMLElement {
   const bar = document.createElement('span');
   bar.className = 'ai-prob-dotbar';
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < PROBABILITY_DOT_TOTAL; i++) {
     const d = document.createElement('span');
     d.className = `ai-prob-dotbar-item${i < count ? ` filled ai-prob-dot-${level}` : ''}`;
     bar.appendChild(d);
