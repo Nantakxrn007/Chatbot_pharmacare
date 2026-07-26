@@ -121,11 +121,155 @@ _NOISE_HEADING_RE = _re.compile(
     _re.IGNORECASE,
 )
 
+# ─── Bibliography/reference-list detection (content-level, not just heading) ──
+# ปัญหา (จาก feedback): เอกสารอ้างอิงของ URI/AAFP "แทรกกลางเล่ม" ไม่ได้อยู่เฉพาะหน้าท้าย
+# และบาง chunk มี heading เป็นหัวข้อคลินิกปกติ แต่ "เนื้อใน" กลับเป็นรายการเอกสารอ้างอิง
+# (เช่น AAFP หน้า 9 References, URI หน้า 28/47 ท้ายบทของคออักเสบ/ไซนัส) -> heading-only จับไม่ได้
+# วิธีแก้: ตรวจ "ย่อหน้า" ว่าเป็นรายการอ้างอิง (bibliographic) จาก "สัญญาณ" หลายชนิด แล้ว
+#   (1) ตัดหาง reference list ทิ้งก่อนส่งเข้า context (คงเนื้อคลินิกไว้ครบ)  ->  _strip_reference_tail
+#   (2) ถ้าทั้ง chunk แทบไม่มีเนื้อคลินิกเหลือ (เป็นรายการอ้างอิงล้วน) -> ถือเป็น noise ตัดทิ้ง
+# ทั้งหมดทำงานแบบ read-only บนข้อความ ไม่แตะ vector/chunk store
+_BIB_SIGNALS = [
+    _re.compile(r"^\s*(?:\d{1,3}|[;:])\s*\\?\.?\s"),                          # เลขนำหน้ารายการ / ต่อเนื่อง ";"
+    _re.compile(r"\b(?:19|20)\d\d\s*[;:]\s*[\(A-Za-z0-9]"),                   # ปี;เล่ม ของวารสาร (2016;164)
+    _re.compile(r"\bet\s+al\b|และคณะ", _re.IGNORECASE),                       # et al / และคณะ
+    _re.compile(r"[A-Z][a-z]+\s+[A-Z]{1,3}\b\s*[,\.;]"),                      # ชื่อผู้แต่ง + อักษรย่อ (Harris AM,)
+    _re.compile(
+        r"\b(?:Ann\s+Intern\s+Med|Clin\s+Infect\s+Dis|Clin\s+Microbiol|Cochrane|"
+        r"Pediatr(?:ics|\s+Rev|\s+Emerg)?|Laryngoscope|J\s+Clin\s+Microbiol|N\s+Engl\s+J\s+Med|"
+        r"Otolaryngol|Arch\s+Otolaryngol|Emerg\s+(?:Med|Care)|Infect\s+Dis|Antimicrob|Saudi\s+J|"
+        r"Int\s+J\s+Pediatr|Head\s+Neck\s+Surg|Prim\s+Care|Med\s+J|Vaccine|Lancet|BMJ|JAMA|"
+        r"UpToDate|Am\s+Fam\s+Physician)\b", _re.IGNORECASE),                 # ชื่อย่อวารสาร
+    _re.compile(r"\bAccessed\s+[A-Za-z0-9]|\bdoi:\s*\S|https?://|www\.|Available\s+from", _re.IGNORECASE),
+    _re.compile(r"\beds?\.\b|บรรณาธิการ|ใน\s*:", _re.IGNORECASE),             # บรรณาธิการ / editor / "ใน:"
+    _re.compile(
+        r"Hospital|Children'?s|\bCenter\b|Centre|Textbook|"
+        r"ราชวิทยาลัย|สมาคม.{0,20}(?:แห่งประเทศไทย|วิทยา)|มหาวิทยาลัย", _re.IGNORECASE),  # ผู้แต่งเชิงสถาบัน
+    _re.compile(r"วารสาร|เวชสาร"),                                            # คำว่า "วารสาร" ในการอ้างอิงไทย
+    _re.compile(r"หน้า\s*\d|\bpp?\.\s*\d|[;:]\s*\d+\s*[:\-]\s*\d|\d+\s*\(\d+\)\s*:", _re.IGNORECASE),  # เลขหน้า/เล่ม
+    _re.compile(r"(?<![.\d])25[0-6]\d\s*[;.:]"),                              # ปี พ.ศ. 25xx; (เช่น 2558.)
+]
+_REF_MARKER_RE = _re.compile(r"^[\s*#>_.\-]*(?:เอกสารอ้างอิง|บรรณานุกรม|references)\b", _re.IGNORECASE)
+_REF_FOOTER_RE = _re.compile(
+    r"American\s+Family\s+Physician|www\.aafp\.org|Volume\s+\d+\s*,\s*Number|"
+    r"แนวทางการดูแลรักษาโรคติดเชื้อเฉียบพลันระบบหายใจในเด็ก", _re.IGNORECASE)
+_SRC_HEADER_RE = _re.compile(r"\s*\[(?:Source|Context):(?:[^\[\]]|\[[^\]]*\])*\]\s*")
+# threshold: chunk ที่เหลือเนื้อคลินิกน้อยกว่านี้ (หลังตัด ref/footer) = เป็นรายการอ้างอิงล้วน
+_REF_CLINICAL_MIN = 60
+
+
+def _content_body(content: str) -> str:
+    """ตัด header [Source: ...] / [Context: ...] นำหน้าออก (ทนต่อ ']' ในหัวข้อ เช่น [C1+])"""
+    body = content or ""
+    for _ in range(3):
+        m = _SRC_HEADER_RE.match(body)
+        if not m:
+            break
+        body = body[m.end():]
+    return body
+
+
+def _is_footer_para(p: str) -> bool:
+    return bool(_REF_FOOTER_RE.search((p or "").strip()))
+
+
+def _is_reference_paragraph(p: str) -> bool:
+    """True เมื่อย่อหน้าเป็น 'รายการเอกสารอ้างอิง' (bibliographic entry) ไม่ใช่เนื้อคลินิก"""
+    s = (p or "").strip()
+    if not s:
+        return False
+    if _REF_MARKER_RE.match(s):
+        return True
+    sig = sum(1 for rx in _BIB_SIGNALS if rx.search(s))
+    if sig < 2:
+        return False
+    # รายการที่ขึ้นต้นด้วยเลข/ต่อเนื่อง = อ้างอิงได้ทุกความยาว; ย่อหน้ายาวที่ไม่ขึ้นต้นด้วยเลข
+    # อาจเป็นความเรียงคลินิกที่บังเอิญมีสัญญาณ -> จับเป็นอ้างอิงเฉพาะเมื่อ "สั้นพอจะเป็นรายการอ้างอิง"
+    if _BIB_SIGNALS[0].search(s):
+        return True
+    return len(s) < 300
+
+
+def _reference_ratio(content: str) -> float:
+    paras = [p for p in _content_body(content).split("\n\n") if len(p.strip()) >= 15]
+    if not paras:
+        return 0.0
+    refs = sum(1 for p in paras if _is_reference_paragraph(p) or _is_footer_para(p))
+    return refs / len(paras)
+
+
+def _clinical_body_len(content: str) -> int:
+    """ความยาวรวมของย่อหน้าที่ 'เป็นเนื้อคลินิกจริง' (ไม่ใช่ ref/footer/header)"""
+    total = 0
+    for p in _content_body(content).split("\n\n"):
+        s = p.strip()
+        if len(s) < 8 or _is_reference_paragraph(p) or _is_footer_para(p):
+            continue
+        total += len(s)
+    return total
+
+
+def _has_reference_material(content: str) -> bool:
+    return any(
+        _is_reference_paragraph(p) or _is_footer_para(p)
+        for p in _content_body(content).split("\n\n")
+        if len(p.strip()) >= 8
+    )
+
+
+def _strip_reference_tail(content: str) -> str:
+    """
+    ตัด 'หางเอกสารอ้างอิง/footer' ออกจากท้าย chunk ก่อนส่งเข้า context ให้ LLM
+    -> กันโมเดลหยิบรายการอ้างอิง (เช่น AAFP References, เอกสารอ้างอิง URI ที่แทรกกลางเล่ม) มาตอบ/อ้าง
+    โดย "คงเนื้อคลินิกไว้ครบ" (ตัดเฉพาะย่อหน้าท้ายที่เป็น ref/footer และตัดจากจุด marker 'เอกสารอ้างอิง')
+    """
+    if not content:
+        return content
+    paras = content.split("\n\n")
+    n = len(paras)
+    # (1) ตัด run ท้ายที่เป็น ref/footer/ย่อหน้าสั้นว่าง
+    i = n
+    while i > 0:
+        p = paras[i - 1]
+        if _is_reference_paragraph(p) or _is_footer_para(p) or len(p.strip()) < 8:
+            i -= 1
+        else:
+            break
+    # (2) ถ้ามี marker "เอกสารอ้างอิง/References" กลางเนื้อ และย่อหน้าถัดจากนั้นเป็น ref เป็นส่วนใหญ่
+    #     ให้ตัดตั้งแต่ marker (รวม marker ด้วย)
+    for idx, p in enumerate(paras):
+        if _REF_MARKER_RE.match((p or "").strip()):
+            tail = [q for q in paras[idx + 1:] if len(q.strip()) >= 8]
+            refs = sum(1 for q in tail if _is_reference_paragraph(q) or _is_footer_para(q))
+            if not tail or refs >= max(1, int(0.6 * len(tail))):
+                i = min(i, idx)
+                break
+    if i >= n:
+        return content
+    return "\n\n".join(paras[:i]).rstrip()
+
 
 def _is_reference_noise(chunk: dict) -> bool:
-    """True เมื่อ chunk เป็นบรรณานุกรม/สารบัญ/รายนามคณะ (ไม่ใช่เนื้อหาคลินิก)"""
+    """
+    True เมื่อ chunk เป็น 'บรรณานุกรม/สารบัญ/รายนามคณะ/รายการเอกสารอ้างอิง' ไม่ใช่เนื้อหาคลินิก
+    - heading rule: หัวข้อบ่งชี้ noise ตรงๆ (References/เอกสารอ้างอิง/สารบัญ/รายนาม/...)
+    - content rule: 'เนื้อใน' เป็นรายการอ้างอิงล้วน (เหลือเนื้อคลินิกน้อยมาก) แม้ heading จะดูปกติ
+      (จับเคสเอกสารอ้างอิงที่แทรกกลางเล่มซึ่ง heading เป็นหัวข้อคลินิก)
+    ตาราง (table_html/dose_table) ไม่ถือเป็นบรรณานุกรมเสมอ
+    """
     heading = chunk.get("heading") or ""
-    return bool(_NOISE_HEADING_RE.search(heading))
+    if _NOISE_HEADING_RE.search(heading):
+        return True
+    if chunk.get("type") in ("table_html", "dose_table"):
+        return False
+    content = chunk.get("content") or ""
+    if not _has_reference_material(content):
+        return False
+    cb = _clinical_body_len(content)
+    if cb < _REF_CLINICAL_MIN:
+        return True
+    # ยังเหลือเนื้อคลินิกบ้าง แต่โดยรวมเป็นรายการอ้างอิงเป็นส่วนใหญ่ + เนื้อคลินิกซ้ำกับ chunk อื่น
+    return cb < 250 and _reference_ratio(content) >= 0.75
 
 
 # ─── Intent / retrieval gate (context-bleeding guard) ────────────────────────
@@ -591,7 +735,8 @@ Step 5: ถ้าเป็น follow-up ที่เปลี่ยนอาย�
 Step 6: แยกว่าข้อมูลใดมาจาก Guideline (Context) และข้อมูลใดเป็นความรู้ทั่วไป/ภายนอก
 Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช็คคำตอบที่ร่างไว้
         (ก) ตัวเลข dose/ความถี่/ระยะเวลา/ชื่อยา ทุกตัว "มาจาก Context จริง" ไม่ได้แต่งเอง
-        (ข) ทุก [Ref] เป็นเล่มเดียวต่อวงเล็บ, เลขหน้าอยู่ในช่วงจริง (ไม่ใช่ปี 2022/2562), ไม่ใช่หน้าบรรณานุกรม
+        (ข) ทุก [Ref] เป็นเล่มเดียวต่อวงเล็บ, เลขหน้าอยู่ในช่วงจริง (ไม่ใช่ปี 2022/2562), **ไม่ใช่หน้า/รายการ
+            "เอกสารอ้างอิง/บรรณานุกรม/References" (รวมที่แทรกกลางเล่ม)**, และ **[Ref: Dose] ต้องมีเลขหน้าเสมอ**
         (ค) ไม่มีข้อมูลผู้ป่วยที่ผู้ใช้ไม่ได้ให้ (อายุ/น้ำหนัก/การแพ้ยา)
         (ง) ไม่ได้แนะนำสิ่งที่ Context ระบุว่า "ไม่แนะนำ/ข้อห้าม"
         (จ) ถ้ามีการซักประวัติ -- ทุกคำถามมีเหตุผลทางคลินิกกำกับครบทุกข้อ (ไม่มี bullet คำถามเปล่า)
@@ -900,9 +1045,25 @@ Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช
      ถูก:  [Ref: URI เด็ก 2562, หน้า 18] [Ref: AAFP, หน้า 2]
    - ห้ามเขียน "URI เด็ก 2562; AAFP 2022, หน้า 2, 7" (ปนเล่ม+ปนเลขหน้า) เด็ดขาด
 
-2.2 **อ้าง "เนื้อหาจริงในไฟล์" เท่านั้น ห้ามอ้างส่วนบรรณานุกรม/สารบัญ/รายนามคณะผู้จัดทำ:**
-   - ผู้ใช้ต้องการเนื้อหาในเอกสาร ไม่ใช่ "รายการเอกสารอ้างอิงท้ายเล่ม" (References/บรรณานุกรม)
-     หรือหน้าสารบัญ/รายชื่อคณะกรรมการ -- ห้ามหยิบส่วนเหล่านี้มาเป็น [Ref] ของคำตอบ
+2.2 **อ้าง "เนื้อหาหลักจริงในไฟล์" เท่านั้น -- ห้ามอ้าง "ส่วนเอกสารอ้างอิง/บรรณานุกรม" เด็ดขาด (สำคัญมาก):**
+   - ผู้ใช้ต้องการเนื้อหาในเอกสาร ไม่ใช่ "รายการเอกสารอ้างอิง" (References / บรรณานุกรม / "เอกสารอ้างอิง")
+     หรือหน้าสารบัญ / รายชื่อคณะกรรมการ / กิตติกรรมประกาศ -- **ห้ามหยิบส่วนเหล่านี้มาเป็นเนื้อหาคำตอบหรือเป็น
+     [Ref] เด็ดขาด** (ทั้งของ AAFP เช่นหัวข้อ References/TABLE 5 Resources ท้ายเล่ม และของ URI เด็ก 2562
+     เช่นหัวข้อ "เอกสารอ้างอิง")
+   - **"เอกสารอ้างอิง" ไม่ได้อยู่แค่หน้าท้ายเล่มเสมอไป -- มันแทรกอยู่ท้ายแต่ละบท/คั่นกลางเล่มได้** (เช่น URI เด็ก
+     2562 มีรายการเอกสารอ้างอิงท้ายบทคออักเสบ, บทไซนัส, บท AOM ฯลฯ) -- **ให้ระวังเป็นพิเศษ** อย่าเผลอหยิบเลขหน้า
+     ที่ตรงกับรายการอ้างอิงมาใส่ในคำตอบ
+   - **วิธีสังเกต "รายการเอกสารอ้างอิง" ที่ห้ามอ้าง:** ข้อความที่เป็นรายการเลขลำดับของบทความ/ตำรา เช่น มีชื่อผู้แต่ง
+     + อักษรย่อ (Shulman ST, et al.), ชื่อวารสาร + ปี + เล่ม/หน้า (Clin Infect Dis 2012;55(10):e86-102),
+     "et al", "และคณะ", "บรรณาธิการ", "ใน:", "Accessed ...", URL/DOI, หรือรายการอ้างอิงภาษาไทย
+     (ราชวิทยาลัย.../สมาคม.../วารสาร.../เวชสาร... พ.ศ. 25xx) -- **สิ่งเหล่านี้คือ "แหล่งที่เอกสารไปอ้างอิงมา"
+     ไม่ใช่เนื้อหาหลัก ห้ามนำมาตอบหรืออ้างเลขหน้าของมันเด็ดขาด** ให้ยึดเฉพาะเนื้อหาแนวทางเวชปฏิบัติจริง
+
+2.3 **เลขหน้าต้องมาจาก Context header จริง และต้องระบุเสมอ (โดยเฉพาะ Dose):**
+   - อ้างเลขหน้าตาม "Page:" ใน header ของ chunk ที่มีข้อความนั้นจริงเท่านั้น (เป็นเลขหน้า PDF จริง)
+   - **[Ref: Dose] ต้องระบุเลขหน้าทุกครั้ง -- ห้ามเขียน "[Ref: Dose]" ลอยๆ โดยไม่มีหน้า** เพราะผู้ใช้กดแล้ว
+     จะเด้งไปหน้าแรกของไฟล์ซึ่งไม่ตรงกับยา -- ให้ดูหน้าของยานั้นจาก Context (เช่น Paracetamol -> [Ref: Dose, หน้า 27])
+     ถ้า Context ไม่มีเลขหน้าของ Dose สำหรับยานั้นจริงๆ ให้ระบุชื่อยาให้ชัดแทนการอ้าง Dose แบบไม่มีหน้า
 
 3. ทุกคำตอบเชิงคลินิก (ประเภท 1, 2, 3, 5) ต้องมี [Ref: ...] กำกับอย่างน้อยหนึ่งรายการ
    - ถ้าใช้ข้อมูลจากหลาย chunk/หลายเล่ม ให้อ้างครบทุกแหล่งที่ใช้จริง
@@ -1771,7 +1932,10 @@ def build_context(chunks: list[dict], weak_context: bool = False) -> str:
         else:
             header += f" | Relevance: {similarity:.2%}"
 
-        parts.append(f"{header}\n{chunk['content']}")
+        # ตัดหางเอกสารอ้างอิง/footer ที่แทรกอยู่ในเนื้อ chunk ออกก่อนส่งเข้า LLM
+        # -> โมเดลจะไม่เห็น "รายการเอกสารอ้างอิง" จึงไม่หยิบมาอ้าง/ตอบ (คงเนื้อคลินิกไว้ครบ)
+        body_text = _strip_reference_tail(chunk.get("content", ""))
+        parts.append(f"{header}\n{body_text}")
 
     body = ("\n\n" + "=" * 60 + "\n\n").join(parts)
 
@@ -1828,9 +1992,66 @@ def _clean_external_label(text: str) -> str:
 _REF_FULL_RE = _re.compile(r'\[Ref:\s*([^\]]*)\]')
 _PAGE_TOKEN_RE = _re.compile(r'(?:หน้า|page|p\.?)\s*([\d,\s]+)', _re.IGNORECASE)
 
+# ─── Reference-only PDF pages (backstop สำหรับ citation ที่เปิดไปโดนหน้าเอกสารอ้างอิง) ──
+# เหตุผล 2 ชั้น:
+#  (1) โมเดล "เดา" เลขหน้าที่เป็นเอกสารอ้างอิงมาใส่เอง (เช่น [Ref: AAFP, หน้า 9] ทั้งที่หน้า 9 = References)
+#  (2) **สำคัญ (feedback ล่าสุด):** เลขหน้าใน metadata กับ "หน้า PDF จริงที่เปิด" เหลื่อมกันแบบ
+#      ไม่คงที่ (offset 0..+6 จากตาราง/แผนภูมิ) -> frontend เปิด `#page=<เลขที่อ้าง>` เป็น "หน้า PDF จริง"
+#      ทำให้อ้าง "หน้า 58" (เนื้อ AOM ตาม metadata) แต่หน้า PDF 58 จริงคือ "เอกสารอ้างอิง" (เคสที่ผู้ใช้เจอ)
+# แก้: ตัดเลขหน้าที่ "เมื่อเปิดเป็นหน้า PDF จริงแล้วเป็นหน้าเอกสารอ้างอิง" ทิ้งจาก citation เสมอ
+#   - _PHYSICAL_REF_PAGES: หน้า PDF จริงที่เป็น "เอกสารอ้างอิง/References ล้วน" (ยืนยันด้วยการอ่าน PDF ตรงๆ
+#     ทีละหน้า -- ไฟล์ static ไม่ re-embed จึง hardcode ได้ปลอดภัย ไม่เพิ่ม dependency/latency)
+#     หน้าที่ปนเนื้อคลินิก (เช่น URI phys 59 = ฝีหลังคอหอย, phys 70 = คำแนะนำ) "ไม่ตัด"
+#   - รวมกับหน้าที่ metadata บอกว่าเป็น reference-only (จาก chunks.jsonl) เพื่อครอบคลุมทั้งสองมุม
+# หมายเหตุ collateral: เลข metadata ที่เป็นเนื้อคลินิกแต่บังเอิญตรงหน้า PDF อ้างอิง (URI 19, 58) จะถูกตัดหน้า
+#   ไปด้วย -- ยอมรับได้เพราะเนื้อเหล่านั้นถูกอ้างซ้ำผ่านหน้าอื่น (AOM: 53/56, common cold: 16-18)
+_PHYSICAL_REF_PAGES: dict[str, set[str]] = {
+    # AAFP (metadata page == physical page): หน้า 8 = TABLE 5 Resources+References, 9 = References
+    "AAFP": {"8", "9"},
+    # URI (P2_URI.pdf) หน้า PDF จริงที่เป็นรายการเอกสารอ้างอิงล้วน (ยืนยันจากการอ่านไฟล์)
+    #  19=common cold refs, 26-27=pharyngitis refs, 42-46=sinusitis refs, 58=AOM refs, 71-72=retropharyngeal refs
+    "URI": {"19", "26", "27", "42", "43", "44", "45", "46", "58", "71", "72"},
+}
+_REF_PAGE_CACHE: dict[str, set[str]] | None = None
+_CANON_TO_SRC = {"AAFP": "AAFP", "URI เด็ก 2562": "URI", "Dose": "Dose"}
 
-def _canon_one_ref(part: str) -> str | None:
-    """ทำ [Ref] ก้อนเดียวให้เป็นมาตรฐาน (คืน None ถ้าว่าง)"""
+
+def _reference_only_pages() -> dict[str, set[str]]:
+    """dict[source] -> set(เลขหน้าที่ห้ามอ้าง = เอกสารอ้างอิง/รายการล้วน หรือหน้า PDF จริงที่เป็น References)
+    รวม (ก) หน้า reference-only จาก metadata (chunks.jsonl) และ (ข) หน้า PDF จริงที่เป็นเอกสารอ้างอิง — lazy, cached
+    """
+    global _REF_PAGE_CACHE
+    if _REF_PAGE_CACHE is not None:
+        return _REF_PAGE_CACHE
+    by_page: dict[tuple, list[dict]] = defaultdict(list)
+    try:
+        index = _load_chunk_index()
+        for row in index.get("by_id", {}).values():
+            by_page[(row.get("source"), row.get("page"))].append(row)
+    except Exception as e:  # noqa: BLE001
+        print(f"[RAG] reference-page map load failed: {e}")
+    out: dict[str, set[str]] = defaultdict(set)
+    for (src, page), rows in by_page.items():
+        if src is None or page is None:
+            continue
+        has_noise = any(_is_reference_noise(r) for r in rows)
+        has_clinical = any(not _is_reference_noise(r) for r in rows)
+        if has_noise and not has_clinical:
+            out[src].add(str(page))
+    # รวมหน้า PDF จริงที่เป็นเอกสารอ้างอิง (จับ offset metadata<->PDF ที่ไม่คงที่)
+    for src, pages in _PHYSICAL_REF_PAGES.items():
+        out[src] |= set(pages)
+    _REF_PAGE_CACHE = dict(out)
+    return _REF_PAGE_CACHE
+
+
+def _canon_one_ref(part: str, dose_pages: list[str] | None = None) -> str | None:
+    """ทำ [Ref] ก้อนเดียวให้เป็นมาตรฐาน (คืน None ถ้าว่าง)
+
+    dose_pages: เลขหน้าของตาราง Dose ที่อยู่ใน Context จริงของคำตอบนี้ (เรียงตามความเกี่ยวข้อง)
+      ใช้เติมเลขหน้าให้ [Ref: Dose] ที่ 'อ้างดื้อๆ ไม่บอกหน้า' -> กันกดแล้วเด้งไปหน้าแรกของ PDF (ผิด)
+      ยาแต่ละตัวใน Dose อยู่หน้าเดียว จึงเติมได้ปลอดภัยเมื่อ Context มีหน้า Dose ชัดเจน
+    """
     part = part.strip().strip(";,. ").strip()
     if not part:
         return None
@@ -1839,6 +2060,7 @@ def _canon_one_ref(part: str) -> str | None:
     if "http" in low or any(m in part for m in _EXT_MARKERS):
         return f"[Ref: {part}]"
 
+    is_dose = False
     if "aaf" in low:
         # ใช้ "AAFP" เปล่าๆ (ไม่ใส่ปี 2022 ในแท็ก) -- ถ้าเขียน "AAFP 2022" ตัวแยกอ้างอิงฝั่งเว็บ
         # จะอ่าน "P 2022" เป็น "หน้า 2022" -> เปิด PDF หน้า 2022 -> 404 (ตรงตาม feedback)
@@ -1847,6 +2069,7 @@ def _canon_one_ref(part: str) -> str | None:
         src = "URI เด็ก 2562"
     elif "dose" in low or "ขนาดยา" in part:
         src = "Dose"
+        is_dose = True
     else:
         src = part.split(",")[0].strip()
 
@@ -1856,13 +2079,22 @@ def _canon_one_ref(part: str) -> str | None:
             n = int(numtok)
             if 1 <= n <= 100 and numtok not in pages:   # 1-100 = เลขหน้าจริง; ปี/journal (>100) ตัดทิ้ง
                 pages.append(numtok)
+    # backstop: ตัดเลขหน้าที่เป็น "หน้าเอกสารอ้างอิง/รายการล้วน" ทิ้ง แม้โมเดลจะเดามาเอง
+    # (เช่น AAFP หน้า 9 = References) -> กันลิงก์ไปโผล่หน้าเอกสารอ้างอิงตรงตาม feedback
+    ref_pages = _reference_only_pages().get(_CANON_TO_SRC.get(src, src), set())
+    if ref_pages:
+        pages = [p for p in pages if p not in ref_pages]
+    # Dose ที่ไม่มีเลขหน้า -> เติมหน้าจาก Context (ถ้ามีหน้า Dose ที่ชัดเจน) กันลิงก์เด้งหน้าแรก
+    if not pages and is_dose and dose_pages:
+        pages = [dose_pages[0]]
     if pages:
         return f"[Ref: {src}, หน้า {', '.join(pages)}]"
     return f"[Ref: {src}]"
 
 
-def _sanitize_citations(answer: str) -> str:
-    """normalize ทุกก้อน [Ref: ...] ในคำตอบ (แยก merge, ตัดปีที่ถูกใช้เป็นหน้า, canonical ชื่อเล่ม)"""
+def _sanitize_citations(answer: str, dose_pages: list[str] | None = None) -> str:
+    """normalize ทุกก้อน [Ref: ...] ในคำตอบ (แยก merge, ตัดปีที่ถูกใช้เป็นหน้า, canonical ชื่อเล่ม,
+    เติมหน้า Dose ที่ขาดจาก Context)"""
     if not answer:
         return answer
 
@@ -1873,25 +2105,37 @@ def _sanitize_citations(answer: str) -> str:
             return f"[Ref: {inner.strip()}]"
         # แยก merge: ';' หรือ 'Ref:' ซ้อน
         subparts = _re.split(r";|(?:^|\s)Ref:\s*", inner)
-        outs = [r for r in (_canon_one_ref(sp) for sp in subparts) if r]
+        outs = [r for r in (_canon_one_ref(sp, dose_pages) for sp in subparts) if r]
         return " ".join(outs) if outs else m.group(0)
 
     return _REF_FULL_RE.sub(_repl, answer)
 
 
-def _stream_flush(pending: str, final: bool) -> tuple[str, str]:
+def _dose_pages_in_context(chunks: list[dict]) -> list[str]:
+    """เลขหน้า Dose ที่ปรากฏใน Context จริง (chunk ที่ถูกเลือกมา ไม่ใช่ตัวขยาย) เรียงตามความเกี่ยวข้อง"""
+    pages: list[str] = []
+    for c in chunks:
+        if c.get("source") != "Dose" or c.get("expanded"):
+            continue
+        pg = str(c.get("page", "")).strip()
+        if pg and pg.isdigit() and pg not in pages:
+            pages.append(pg)
+    return pages
+
+
+def _stream_flush(pending: str, final: bool, dose_pages: list[str] | None = None) -> tuple[str, str]:
     """
     ใช้ตอน streaming: normalize citation ก่อนส่งให้ผู้ใช้เห็น (frontend เรนเดอร์ข้อความสตรีมสดๆ
     ไม่ได้ re-render จาก full_answer) โดยกันไม่ให้ตัดผ่านกลาง [Ref: ...] ที่ยังมาไม่ครบ
     คืน (emit, remaining): emit = ส่วนที่ปลอดภัยและ sanitize แล้ว, remaining = กันไว้ต่อ chunk ถัดไป
     """
     if final:
-        return _sanitize_citations(pending), ""
+        return _sanitize_citations(pending, dose_pages), ""
     open_idx = pending.rfind("[")
     close_idx = pending.rfind("]")
     if open_idx > close_idx:          # มี '[' ที่ยังไม่ปิด -> กันตั้งแต่ตำแหน่งนั้นไว้ก่อน
-        return _sanitize_citations(pending[:open_idx]), pending[open_idx:]
-    return _sanitize_citations(pending), ""
+        return _sanitize_citations(pending[:open_idx], dose_pages), pending[open_idx:]
+    return _sanitize_citations(pending, dose_pages), ""
 
 
 def _guideline_sources(chunks: list[dict], weak_context: bool) -> tuple[list[dict], set]:
@@ -2331,7 +2575,7 @@ def generate_answer(
         else:
             answer = f"[ระบบ] เกิดข้อผิดพลาดในการสร้างคำตอบ: {err_str}"
 
-    answer = _sanitize_citations(answer)
+    answer = _sanitize_citations(answer, _dose_pages_in_context(chunks))
     sources, seen = _guideline_sources(chunks, weak_context)
     _append_external_refs(sources, seen, answer)
 
@@ -2386,6 +2630,7 @@ async def generate_answer_stream(
 
     # แหล่งอ้างอิงจาก Guideline (กรองด้วย similarity จริง) — external refs เติมหลังได้คำตอบ
     sources, seen = _guideline_sources(chunks, weak_context)
+    dose_pages = _dose_pages_in_context(chunks)
 
     try:
         chat     = _chat_model.start_chat(history=gemini_history)
@@ -2401,7 +2646,7 @@ async def generate_answer_stream(
                 full_answer += chunk.text
                 # normalize citation \u0e23\u0e30\u0e2b\u0e27\u0e48\u0e32\u0e07\u0e2a\u0e15\u0e23\u0e35\u0e21 (frontend \u0e40\u0e23\u0e19\u0e40\u0e14\u0e2d\u0e23\u0e4c\u0e02\u0e49\u0e2d\u0e04\u0e27\u0e32\u0e21\u0e2a\u0e14\u0e46)
                 pending += chunk.text
-                emit, pending = _stream_flush(pending, final=False)
+                emit, pending = _stream_flush(pending, final=False, dose_pages=dose_pages)
                 if emit:
                     yield json.dumps({"type": "chunk", "content": emit}) + "\n"
 
@@ -2411,7 +2656,7 @@ async def generate_answer_stream(
                 completion_tokens = chunk.usage_metadata.candidates_token_count
 
         # flush \u0e2a\u0e48\u0e27\u0e19\u0e17\u0e35\u0e48\u0e01\u0e31\u0e19\u0e44\u0e27\u0e49 (\u0e40\u0e0a\u0e48\u0e19 [Ref: ...] \u0e01\u0e49\u0e2d\u0e19\u0e2a\u0e38\u0e14\u0e17\u0e49\u0e32\u0e22)
-        emit, pending = _stream_flush(pending, final=True)
+        emit, pending = _stream_flush(pending, final=True, dose_pages=dose_pages)
         if emit:
             yield json.dumps({"type": "chunk", "content": emit}) + "\n"
 
@@ -2421,7 +2666,7 @@ async def generate_answer_stream(
             completion_tokens = response.usage_metadata.candidates_token_count
 
         # normalize citations \u0e17\u0e31\u0e49\u0e07\u0e01\u0e49\u0e2d\u0e19 \u0e41\u0e25\u0e49\u0e27\u0e04\u0e48\u0e2d\u0e22\u0e14\u0e36\u0e07\u0e2d\u0e49\u0e32\u0e07\u0e2d\u0e34\u0e07\u0e20\u0e32\u0e22\u0e19\u0e2d\u0e01 (URL) \u0e08\u0e32\u0e01\u0e02\u0e49\u0e2d\u0e04\u0e27\u0e32\u0e21\u0e04\u0e33\u0e15\u0e2d\u0e1a
-        full_answer = _sanitize_citations(full_answer)
+        full_answer = _sanitize_citations(full_answer, dose_pages)
         _append_external_refs(sources, seen, full_answer)
 
         yield json.dumps({
