@@ -34,8 +34,8 @@
 .pp-search-section { margin-bottom: 18px; }
 .pp-search-wrapper {
     display: flex; align-items: center; gap: 8px;
-    background: #fff; border: 1px solid #dce6e1; border-radius: 10px;
-    padding: 10px 14px; max-width: 420px;
+    background: #fff; border: 1px solid #dce6e1; border-radius: 12px;
+    padding: 10px 14px; width: 100%;
 }
 .pp-search-wrapper svg { color: #8aaba5; flex-shrink: 0; }
 .pp-search-input {

@@ -417,11 +417,11 @@ export default function PatientDetailPage() {
                 <div className="pt-card-title">📊 สถิติ</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', flex: 1 }}>
                   <div style={{ textAlign: 'center', padding: '0.5rem', borderRadius: 8, background: '#f8fafc' }}>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#10b981' }}>{(summary.conditions || []).length}</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#1fae86' }}>{(summary.conditions || []).length}</div>
                     <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>อาการ</div>
                   </div>
                   <div style={{ textAlign: 'center', padding: '0.5rem', borderRadius: 8, background: '#f8fafc' }}>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#0891b2' }}>{(summary.medications_given || []).length}</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#17c3a2' }}>{(summary.medications_given || []).length}</div>
                     <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>รายการยา</div>
                   </div>
                 </div>

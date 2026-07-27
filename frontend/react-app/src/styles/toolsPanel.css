@@ -219,22 +219,12 @@
         position: fixed;
         top: 0;
         right: 0;
-        /* A plain 100vh reads as 100% of the *zoomed* (.app-layout) height
-           here, not the real viewport — since --ui-zoom is 0.95, that left a
-           visible gap at the bottom of the panel. Dividing by the zoom
-           factor compensates, same trick used for .app-layout/.sidebar. */
-        height: calc(100vh / var(--ui-zoom));
+        height: 100vh;
         width: 280px;
         min-width: 280px;
         max-width: 82vw;
         border-left: 1px solid #dce6e1;
         transform: translateX(100%) !important;
-        /* No transition here — this panel sits under an ancestor with a
-           CSS `zoom` applied (.app-layout), and animating `transform` on a
-           `position: fixed` descendant of a zoomed element gets stuck mid-
-           transition in Chrome (computed style stops updating entirely).
-           Confirmed by testing: the exact same rule works instantly with
-           transition removed, but never resolves with it present. */
         z-index: 50;
     }
 

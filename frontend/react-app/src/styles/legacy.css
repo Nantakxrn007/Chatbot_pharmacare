@@ -5,10 +5,6 @@
             padding: 0;
         }
 
-        :root {
-            --ui-zoom: 0.95;
-        }
-
         body {
             font-family: 'Inter', 'Noto Sans Thai', sans-serif;
             background: #fbfffe;
@@ -36,15 +32,14 @@
         /* Layout */
         .app-layout {
             display: flex;
-            zoom: var(--ui-zoom);
-            height: calc(100vh / var(--ui-zoom));
+            height: 100vh;
             overflow: hidden;
         }
 
         .sidebar {
             width: 300px;
             min-width: 300px;
-            height: calc(100vh / var(--ui-zoom));
+            height: 100vh;
             display: flex;
             flex-direction: column;
             background: #fff;
@@ -376,7 +371,7 @@
 
         .app-layout {
             display: flex;
-            height: calc(100vh / var(--ui-zoom));
+            height: 100vh;
             overflow: hidden;
             background: #f6f8f7;
         }
