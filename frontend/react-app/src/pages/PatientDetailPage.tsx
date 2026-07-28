@@ -176,18 +176,38 @@ export default function PatientDetailPage() {
         return capped;
       };
 
+      // addImage always draws the *full* remaining image — with no clip it
+      // bleeds past this page's intended cutoff into the bottom margin (down
+      // to the physical page edge), while the next page still starts
+      // exactly at that intended cutoff. That leftover sliver gets drawn on
+      // both pages, which shows up as a duplicated card straddling the
+      // break. Clipping to exactly this page's own slice height (not just
+      // the fixed margin box — findSafeBreak can pull a page short of a full
+      // usableHeight to dodge a card) removes the bleed entirely.
+      const drawPageSlice = (pos: number, sliceHeight: number) => {
+        pdf.saveGraphicsState();
+        // The trailing `null` matters — jsPDF's rect() paints a visible
+        // stroke by default when no style is given, which showed up as a
+        // thick black rule around every page's clip box.
+        pdf.rect(margin, margin, usableWidth, sliceHeight, null);
+        pdf.clip();
+        pdf.discardPath();
+        pdf.addImage(dataUrl, 'JPEG', margin, margin - pos, imgWidthIn, imgHeightIn);
+        pdf.restoreGraphicsState();
+      };
+
       let heightLeft = imgHeightIn;
       let position = 0;
 
-      pdf.addImage(dataUrl, 'JPEG', margin, margin - position, imgWidthIn, imgHeightIn);
       let nextBreak = findSafeBreak(position + usableHeight);
+      drawPageSlice(position, nextBreak - position);
       heightLeft -= nextBreak - position;
       position = nextBreak;
 
       while (heightLeft > 0) {
         pdf.addPage();
-        pdf.addImage(dataUrl, 'JPEG', margin, margin - position, imgWidthIn, imgHeightIn);
         nextBreak = findSafeBreak(position + usableHeight);
+        drawPageSlice(position, nextBreak - position);
         heightLeft -= nextBreak - position;
         position = nextBreak;
       }
