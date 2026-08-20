@@ -40,6 +40,8 @@ from backend.config import (
     LLM_RETRY_BACKOFF,
     chat_generation_config,
     qdrant_path,
+    QDRANT_URL,
+    QDRANT_API_KEY,
 )
 import time
 from collections import OrderedDict, defaultdict
@@ -1212,8 +1214,10 @@ def _init():
 
     genai.configure(api_key=GOOGLE_API_KEY)
 
-    # Qdrant
-    _client = QdrantClient(path=QDRANT_DIR)
+    # Qdrant (Qdrant Cloud — see README for local-mode fallback)
+    if not QDRANT_URL or not QDRANT_API_KEY:
+        raise RuntimeError("ไม่พบ QDRANT_URL / QDRANT_API_KEY ใน .env")
+    _client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 
     collections = _client.get_collections().collections
     exists      = any(c.name == COLLECTION_NAME for c in collections)
