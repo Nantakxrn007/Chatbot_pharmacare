@@ -40,6 +40,9 @@ ENV_FILE = PROJECT_ROOT / ".env"
 
 load_dotenv(ENV_FILE)
 
+QDRANT_URL = os.getenv("QDRANT_URL")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+
 # ─── Source documents (chunk pipeline) ───────────────────────────────────────
 
 MD_FILES: list[tuple[str, str]] = [
