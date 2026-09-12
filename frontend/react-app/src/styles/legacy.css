@@ -391,14 +391,20 @@
         }
 
         /* PDF Panel */
+        /* ห้าม transition ความกว้าง: ตัวอ่าน PDF คำนวณตำแหน่งของ "#page=N" ครั้งเดียวตอนโหลด
+           ถ้าแผงยังขยายอยู่ (อนิเมชัน 300ms) มันจะคิดตำแหน่งจากความกว้างที่แคบกว่าจริง
+           แล้วไปหยุดที่หน้าข้างเคียง (ขอหน้า 40 ได้หน้า 41 -- อาการ "หน้าเคลื่อน" ที่ผู้ใช้เจอ)
+           และเป็นต้นเหตุของ "ซูมแล้วเลื่อนมันเคลื่อนแปลกๆ" ด้วย เพราะหน้าถูกจัดใหม่ระหว่างอนิเมชัน
+           -> เปิดทันที แล้วใช้ opacity (ไม่กระทบ layout) ให้ยังดูนุ่มนวล */
         .pdf-panel {
             width: 0;
             background: #fff;
             display: flex;
             flex-direction: column;
-            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             overflow: hidden;
             position: relative;
+            opacity: 0;
+            transition: opacity 0.18s ease;
         }
 
         .pdf-panel.open {
@@ -406,6 +412,12 @@
             max-width: 800px;
             min-width: 300px;
             border-left: 1px solid #e2e8f0;
+            opacity: 1;
+        }
+
+        /* ระหว่างลากขอบปรับความกว้าง: ไม่ต้อง fade ซ้ำ (กันแผงกระพริบตอนลาก) */
+        .pdf-panel.resizing {
+            transition: none;
         }
 
         .resizer {
@@ -458,11 +470,139 @@
             color: #ef4444;
         }
 
-        .pdf-iframe {
+        /* ─── ตัวอ่าน PDF ที่เรนเดอร์เอง (PdfView) ─────────────────────────── */
+        .pdfv {
             flex: 1;
-            width: 100%;
-            border: none;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
             background: #f1f5f9;
+        }
+
+        .pdfv-bar {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 5px 8px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+            font-size: 12px;
+            flex-wrap: wrap;
+        }
+
+        .pdfv-bar button,
+        .pdfv-bar a {
+            border: 1px solid #d7dee8;
+            background: #fff;
+            color: #334155;
+            border-radius: 6px;
+            padding: 3px 8px;
+            font-size: 12px;
+            line-height: 1.5;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .pdfv-bar button:hover:not(:disabled),
+        .pdfv-bar a:hover {
+            background: #eef2f7;
+        }
+
+        .pdfv-bar button:disabled {
+            opacity: 0.45;
+            cursor: default;
+        }
+
+        .pdfv-bar button.on {
+            background: #e6f4f1;
+            border-color: #10b981;
+            color: #0f766e;
+        }
+
+        .pdfv-sep {
+            width: 1px;
+            height: 18px;
+            background: #e2e8f0;
+            margin: 0 3px;
+        }
+
+        .pdfv-page {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .pdfv-page input {
+            width: 46px;
+            text-align: center;
+            border: 1px solid #d7dee8;
+            border-radius: 6px;
+            padding: 3px 4px;
+            font-size: 12px;
+        }
+
+        .pdfv-total {
+            color: #64748b;
+        }
+
+        .pdfv-scroll {
+            flex: 1;
+            overflow: auto;
+            position: relative;
+            padding: 12px;
+        }
+
+        /* หน้าเอกสารวางด้วยตำแหน่ง absolute ตามความสูงจริงที่วัดมา
+           -> การกระโดดไปหน้า N ใช้ตำแหน่งจริง ไม่ใช่การเดา */
+        .pdfv-pages {
+            position: relative;
+            margin: 0 auto;
+        }
+
+        .pdfv-pagebox {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #fff;
+            box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18);
+        }
+
+        .pdfv-pagebox canvas {
+            display: block;
+        }
+
+        .pdfv-num {
+            position: absolute;
+            right: 4px;
+            bottom: 2px;
+            font-size: 10px;
+            color: #94a3b8;
+            background: rgba(255, 255, 255, 0.85);
+            padding: 0 4px;
+            border-radius: 4px;
+        }
+
+        .pdfv-msg {
+            padding: 16px;
+            color: #64748b;
+            font-size: 13px;
+        }
+
+        .pdfv-err {
+            color: #b42318;
+        }
+
+        /* หน้าที่แสดงจริงไม่ตรงกับหน้าที่อ้าง -> เตือนให้เห็นทันที */
+        .pdf-mismatch {
+            font-size: 11px;
+            color: #b42318;
+            background: #fdecea;
+            border: 1px solid #f5c6c2;
+            border-radius: 6px;
+            padding: 1px 6px;
+            margin-left: auto;
+            margin-right: 6px;
+            white-space: nowrap;
         }
 
         /* Top bar */
@@ -1415,6 +1555,23 @@
 
         .ai-dose-highlight {
             font-weight: 700;
+        }
+
+        /* ชื่อยา/ตัวยาสำคัญ -- ตัวหนาสีดำเข้ม ให้กวาดตาหาชื่อยาในคำตอบยาว ๆ ได้เร็ว
+           (ตาม feedback: เดิม highlight แค่ขนาดยา ชื่อยาเลยจมไปกับเนื้อความ) */
+        .ai-drug-highlight {
+            font-weight: 700;
+            color: #111827;
+        }
+
+        /* อยู่ใน context ที่มีสีของตัวเอง (ชิปแดง/ข้อควรระวัง/หัวข้อ) -> ไม่ทับสี เอาแค่ตัวหนา */
+        .ai-no-atb .ai-drug-highlight,
+        .ai-caution-text .ai-drug-highlight,
+        .ai-text h1 .ai-drug-highlight,
+        .ai-text h2 .ai-drug-highlight,
+        .ai-text h3 .ai-drug-highlight,
+        .ai-text h4 .ai-drug-highlight {
+            color: inherit;
         }
 
         .ai-alert-highlight {

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { marked } from 'marked';
+import { DRUG_NAME_PATTERN } from '../lib/drugNames';
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -162,6 +163,25 @@ const CASE_TYPE_LABEL_PATTERN = /\s*\(ประเภท\s*\d+\)/g;
 const FEVER_PATTERN =
   /(?<!ไม่\s*)ไข้(?:(?:สูง|ต่ำ)(?:\s*\(?\s*\d+(?:\.\d+)?\s*(?:°|องศา)(?:เซลเซียส)?\)?)?|\s*\(?\s*\d+(?:\.\d+)?\s*(?:°|องศา)(?:เซลเซียส)?\)?)/g;
 
+// Drug names read as plain body text while their dose sits in a bold chip
+// right next to them, so the name — the thing a pharmacist actually scans a
+// long answer for — is the hardest part to find. Give every drug/active-
+// ingredient name a dark bold treatment so "Paracetamol 10-15 mg/kg/dose"
+// reads as one emphasized unit.
+//
+// Only applied to text OUTSIDE "[...]" blocks, "<...>" tags and bare URLs: a
+// "[Ref: ... อ้างอิงจาก https://.../amoxicillin-dosing]" marker carries drug
+// names inside a URL, and wrapping one in a span there would corrupt the link
+// (and the data-* attributes the earlier passes already emitted).
+const PROTECTED_SPANS = /(\[[^\]]*\]|<[^>]*>|https?:\/\/[^\s)\]]+)/;
+
+function highlightOutsideMarkers(text: string, pattern: RegExp, cls: string): string {
+  return text
+    .split(new RegExp(PROTECTED_SPANS.source, 'g'))
+    .map((seg, i) => (i % 2 === 1 ? seg : seg.replace(pattern, (m) => `<span class="${cls}">${m}</span>`)))
+    .join('');
+}
+
 function renderMd(text: string): string {
   if (!text) return '';
   try {
@@ -195,6 +215,10 @@ function renderMd(text: string): string {
     );
     processed = processed.replace(CAUTION_PATTERN, '<span class="ai-caution-text">ข้อควรระวัง</span>');
     processed = processed.replace(PROHIBIT_PATTERN, '<span class="ai-caution-text">ห้าม</span>');
+
+    // After the dose/caution passes (so their spans are already tags this skips)
+    // and before "[Ref: ...]" becomes HTML, while the markers are still "[...]".
+    processed = highlightOutsideMarkers(processed, DRUG_NAME_PATTERN, 'ai-drug-highlight');
 
     processed = processed.replace(/\[Ref:\s*(.*?)\]/gi, (_match, content: string) => {
       if (content.includes('ความรู้ทั่วไป') || content.includes('อ้างอิงจาก')) {

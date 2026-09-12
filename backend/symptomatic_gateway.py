@@ -155,7 +155,13 @@ def _classify(d: dict) -> dict:
     rhinitis = has_en(_RHINITIS_KEYS) or has_th(("ลดน้ำมูก", "น้ำมูกไหล", "แก้แพ้"))
     febrile = has_en(_FEVER_PAIN_KEYS) or has_th(("ลดไข้", "แก้ปวด", "เป็นไข้", "ปวดศีรษะ"))
     dry_cough = has_en(_DRY_COUGH_KEYS) or has_th(("ไอแห้ง", "ไม่มีเสมหะ")) or "dextromethorphan" in name
-    wet_cough = has_en(_WET_COUGH_KEYS) or has_th(("ขับเสมหะ", "ละลายเสมหะ", "มีเสมหะ"))
+    # "มีเสมหะ" ต้องดูคำปฏิเสธข้างหน้า: ind ถูกตัดช่องว่างทิ้ง ทำให้ "ไอแบบไม่มีเสมหะ" (Dextromethorphan,
+    # Levodropropizine, Strepsils dry cough = ยากดไอ) มี "มีเสมหะ" เป็นสตริงย่อย -> เคยถูกจัดเป็น
+    # ยาละลาย/ขับเสมหะ แล้วถูกเสนอในเคส "ไอมีเสมหะ" ซึ่งผิดหลักการใช้ยา (ห้ามกดไอที่มีเสมหะ)
+    # ยาที่บ่งใช้ทั้งสองแบบจริง (Terco-D: "...ไอแบบมีเสมหะและไอแห้งหรือไอไม่มีเสมหะ") ยังเข้าเงื่อนไข
+    # เพราะมีตำแหน่ง "มีเสมหะ" ที่ไม่ได้ตามหลัง "ไม่" อยู่ด้วย
+    wet_cough = (has_en(_WET_COUGH_KEYS) or has_th(("ขับเสมหะ", "ละลายเสมหะ"))
+                 or bool(re.search(r"(?<!ไม่)มีเสมหะ", ind)))
     throat = has_en(_THROAT_KEYS) or has_th(("เจ็บคอ", "ระคายคอ", "ลำคอ", "คออักเสบ", "ช่องปาก"))
     is_spray = "spray" in name or has_th(("สเปรย์", "พ่น"))
     is_lozenge = "lozenge" in name or "strepsils" in name or has_th(("ยาอม",))
@@ -187,13 +193,10 @@ def _classify(d: dict) -> dict:
     if not cls:
         cls, route_note = _fallback_class(d)
 
-    form = None
-    if "throat_spray" in cls:
-        form = "spray"
-    elif "throat_lozenge" in cls:
-        form = "lozenge"
-    elif "gargle" in cls:
-        form = "gargle"
+    # รูปแบบยา (form) มาจาก "รูปแบบจริงของผลิตภัณฑ์" ไม่ผูกกับกลุ่มอาการเจ็บคอ --
+    # ไม่งั้นยาอมที่ข้อบ่งใช้ไม่ได้พูดถึงคอ (เช่น Strepsils chesty cough = ยาอมละลายเสมหะ)
+    # จะไม่มี form แล้วถูกเรียกชื่อหมวดผิด (เคยเจอ: เรียกยากลั้วคอว่า "ยาอม")
+    form = "spray" if is_spray else "lozenge" if is_lozenge else "gargle" if is_gargle else None
     return {
         "classes": cls,
         "first_gen": "+" not in d["name"] and any(k in name for k in _FIRST_GEN_AH),
@@ -690,6 +693,10 @@ def build_catalog(f: dict, plan: dict[str, tuple[str, str]], *, full: bool = Fal
     ]
     used: list[dict] = []
     avoided: list[str] = []
+    # ยาที่อยู่ได้หลายหมวดพร้อมกัน (Terco-D = กดไอ+ขับเสมหะ, Strepsils dry cough = ยาอมเจ็บคอ+ไอแห้ง)
+    # เคยถูกลงรายการซ้ำทุกหมวด แล้วโมเดลก็เสนอซ้ำในคำตอบตามไปด้วย (feedback: "ยาพ่น/ยาอม มีซ้ำ")
+    # -> หมวดหลังอ้างถึงหมวดแรกแทนการลงรายละเอียดซ้ำ
+    listed_in: dict[str, str] = {}
     for cls in CLASS_ORDER:
         if cls not in plan:
             continue
@@ -716,10 +723,15 @@ def build_catalog(f: dict, plan: dict[str, tuple[str, str]], *, full: bool = Fal
             if tier == "rare" and not full:
                 rare.append(d["display"])
                 continue
+            if d["name"] in listed_in:
+                lines.append(f"  - {d['display']} (ยาตัวเดียวกับที่อยู่ในหมวด \"{listed_in[d['name']]}\" ข้างบน "
+                             f"-- ใช้ครอบทั้งสองอาการได้ แต่ **เสนอได้ครั้งเดียว ห้ามเขียนซ้ำสองหมวด**)")
+                continue
             if tier != cur_tier and tier in _TIER_LABELS:
                 lines.append(f"  [{_TIER_LABELS[tier]}]")
                 cur_tier = tier
             lines.append(_drug_line(d, cls, f, full=full))
+            listed_in[d["name"]] = CLASS_LABELS[cls]
             if d not in used:
                 used.append(d)
         if rare:
@@ -1204,6 +1216,24 @@ def _label_block_end(lines: list[str], i: int) -> int | None:
     return None
 
 
+_FORM_LABEL_WORDS = ("ยาอม", "ยาพ่น", "ยากลั้วคอ")
+
+
+def may_become_form_label(tail: str) -> bool:
+    r"""(streaming) บรรทัดท้ายที่ยังไม่จบนี้ "มีโอกาสกลายเป็นหัวข้อหมวดยาเฉพาะที่คอ" ไหม
+
+    ต้องกันไว้ตั้งแต่ยังพิมพ์ชื่อหมวดไม่จบ: ถ้าปล่อยครึ่งคำ ("...\nยาพ") ออกไปก่อน
+    บรรทัดหัวข้อจะถูกหั่นคนละ chunk แล้ว fix_form_labels มองไม่เห็นหัวข้อเต็มบรรทัด
+    -> แก้ชื่อหมวด/ตัดชื่อซ้ำไม่ได้ และถ้าชิ้นหลังไปเข้าเงื่อนไขเองจะเขียนชื่อหมวดทับซ้อนกัน
+    """
+    if not tail:
+        return False
+    if any(w in tail for w in _FORM_LABEL_WORDS):
+        return True
+    # ท้ายบรรทัดเป็น "ครึ่งคำ" ของชื่อหมวด (เช่น "ยาพ" ของ "ยาพ่น")
+    return any(tail.endswith(w[:k]) for w in _FORM_LABEL_WORDS for k in range(1, len(w)))
+
+
 def open_form_label_start(text: str) -> int | None:
     """(streaming) ตำแหน่งเริ่มบรรทัดหัวข้อหมวดยาเฉพาะที่คอที่บล็อกยังรับรายการยาไม่ครบ -> ต้องกันไว้ก่อนส่ง"""
     lines = text.split("\n")
@@ -1218,8 +1248,24 @@ def open_form_label_start(text: str) -> int | None:
     return None
 
 
+def _canonical_form_label(forms: set[str], label: str) -> str:
+    """ชื่อหัวข้อหมวดมาตรฐานของชุดรูปแบบยา (เรียงตาม _FORM_WORDS และไม่มีชื่อรูปแบบซ้ำ)"""
+    suffix = "บรรเทาอาการเจ็บคอ" if "เจ็บคอ" in label else ""
+    names = {"spray": "ยาพ่น" if suffix else "ยาพ่นคอ", "lozenge": "ยาอม", "gargle": "ยากลั้วคอ"}
+    return "/".join(names[fm] for fm, _ in _FORM_WORDS if fm in forms) + suffix
+
+
 def fix_form_labels(text: str) -> str:
-    """หัวข้อหมวดที่เรียกรูปแบบผิด (เช่น 'ยาอม:' แต่รายการเป็นยาพ่น/ยากลั้วคอ) -> แก้ชื่อหมวดให้ตรงรูปแบบยาที่อยู่ใต้หัวข้อ"""
+    """หัวข้อหมวดยาเฉพาะที่คอ -> ให้ตรง "รูปแบบยาที่อยู่ใต้หัวข้อจริง" และไม่มีชื่อรูปแบบซ้ำ
+
+    สองอาการที่เจอจริงจาก feedback:
+      (1) เรียกผิดรูปแบบ -- "ยาอม:" แต่รายการใต้หัวข้อเป็นยาพ่น/ยากลั้วคอ
+          (เคสที่เจอ: ยากลั้วคอถูกเรียกว่า "ยาอม" เพราะวิธีใช้เขียนว่า "อมกลั้วคอ ... แล้วบ้วนทิ้ง")
+      (2) ชื่อรูปแบบซ้ำในหัวข้อเดียว -- "ยาพ่นคอ/ยาพ่นคอ/ยาอม:" หรือ
+          "ยาพ่นคอ/ยาพ่น/ยาอม/ยากลั้วคอบรรเทาอาการเจ็บคอ:" (ยาพ่นออกมาซ้ำ)
+          เคสนี้ "ชุดรูปแบบ" ตรงอยู่แล้วจึงหลุดการตรวจเดิมที่เทียบเฉพาะ set -> ต้อง dedupe แยก
+    ยึด "รูปแบบยาจากตาราง Dose" เป็นตัวตัดสินเสมอ (ไม่เชื่อถ้อยคำที่โมเดลเขียน)
+    """
     if not text or not re.search(r"ยาอม|ยาพ่น|ยากลั้วคอ", text):
         return text
     lines = text.split("\n")
@@ -1229,17 +1275,20 @@ def fix_form_labels(text: str) -> str:
             continue
         end = _label_block_end(lines, i)
         block = ln[m.end():] + "\n" + "\n".join(lines[i + 1: end if end is not None else len(lines)])
-        forms = _forms_in(block)
-        if not forms:
-            continue
         label = m.group(2)
         have = {fm for fm, pat in _FORM_WORDS if re.search(pat, label)}
-        if have == forms:
+        forms = _forms_in(block)
+        dup = any(len(re.findall(pat, label)) > 1 for _, pat in _FORM_WORDS)
+        if forms:
+            if have == forms and not dup:
+                continue          # ตรงรูปแบบแล้วและไม่ซ้ำ -> ไม่แตะ (คงถ้อยคำเดิมของโมเดล)
+        elif dup and have:
+            forms = have          # ยังไม่รู้จักยาในบล็อก (เช่นตอนสตรีมยังไม่ครบ) -> แก้แค่ชื่อซ้ำ
+        else:
             continue
-        suffix = "บรรเทาอาการเจ็บคอ" if "เจ็บคอ" in label else ""
-        names = {"spray": "ยาพ่น" if suffix else "ยาพ่นคอ", "lozenge": "ยาอม", "gargle": "ยากลั้วคอ"}
-        new_label = "/".join(names[fm] for fm, _ in _FORM_WORDS if fm in forms) + suffix
-        lines[i] = ln[: m.start(2)] + new_label + ln[m.end(2):]
+        new_label = _canonical_form_label(forms, label)
+        if new_label and new_label != label.strip():
+            lines[i] = ln[: m.start(2)] + new_label + ln[m.end(2):]
     return "\n".join(lines)
 
 

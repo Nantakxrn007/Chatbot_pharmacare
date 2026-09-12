@@ -12,6 +12,7 @@ from qdrant_client.models import Filter, FieldCondition, MatchAny, MatchValue
 
 from backend.patient_group import infer_patient_group_from_query, filter_groups_for_query
 from backend import symptomatic_gateway as _sg
+from backend import page_map as _pm
 from backend.config import (
     GOOGLE_API_KEY,
     EMBED_MODEL,
@@ -992,7 +993,10 @@ Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช
           - เจ็บคอ/ระคายคอ -> **เรียกชื่อหมวดตาม "รูปแบบยา" ให้ตรงตัวเสมอ (ห้ามปนหมวด -- ผิดบ่อยมาก)**: **ยาอม** (Lozenge เช่น Strepsils
             สูตรต่างๆ, Difflam Lozenges), **ยาพ่นคอ** (Spray เช่น Kamilosan M spray, Propoliz mouth spray, Difflam forte throat spray),
             **ยากลั้วคอ** (Gargle เช่น Betadine gargle -- ใช้กลั้วแล้วบ้วนทิ้ง **ไม่ใช่ "ยาอม"**) -- ใน DOSE CATALOG มี [รูปแบบ: ...]
-            กำกับทุกตัว ให้ยึดตามนั้น และถ้าหัวข้อเดียวมีหลายรูปแบบ ให้เขียนชื่อหมวดให้ครบ (เช่น "ยาพ่น/ยาอมบรรเทาอาการเจ็บคอ")
+            กำกับทุกตัว **ให้ยึดตามนั้นเท่านั้น ห้ามเดารูปแบบจากวิธีใช้** (Betadine gargle เขียนว่า "อมกลั้วคอแล้วบ้วนทิ้ง"
+            แต่เป็น **ยากลั้วคอ** ไม่ใช่ยาอม) -- ถ้าหัวข้อเดียวมีหลายรูปแบบ ให้เขียนชื่อรูปแบบ **รูปแบบละ 1 ครั้งเท่านั้น
+            ห้ามเขียนซ้ำ** (ถูก: "ยาพ่น/ยาอมบรรเทาอาการเจ็บคอ" -- ผิด: "ยาพ่นคอ/ยาพ่น/ยาอม...", "ยาพ่นคอ/ยาพ่นคอ/ยาอม...")
+            และยาแต่ละตัวให้เอ่ยชื่อครั้งเดียว **ห้ามเสนอยาตัวเดิมซ้ำในหัวข้อเดียวกันหรือข้ามหัวข้อ**
             + ทางเลือกพื้นฐานที่ง่ายและปลอดภัย: **กลั้วคอด้วยน้ำเกลือ** -- เด็กต้องตรวจอายุขั้นต่ำของแต่ละผลิตภัณฑ์จาก Context
           - เสียงแหบ -> พักเสียง + ยาพ่นคอ/ยาอมบรรเทาอาการ (ไม่ใช่ยาลดน้ำมูก)
           - หวัด/URI ที่ผู้ใช้ไม่ได้ปฏิเสธไข้และปวดชัดเจน -> ใส่ยาแก้ปวด/ลดไข้ (Paracetamol) เป็นยาใช้เมื่อมีอาการไว้เสมอ
@@ -1167,9 +1171,13 @@ Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช
      (ถ้าเขียน "AAFP 2022, หน้า X" ระบบฝั่งเว็บจะอ่าน "P 2022" เป็น "หน้า 2022" แล้วเปิด PDF ผิดเป็น 404)
      จะพูดถึง "AAFP 2022" ในเนื้อความอธิบายได้ แต่ **ในวงเล็บ [Ref] ต้องเป็น "AAFP" เปล่าๆ เท่านั้น**
    - ห้ามเดาหรือเขียนเลขหน้าขึ้นเอง และห้ามใช้เลขหน้าวารสาร/เลขอื่นนอกจากฟิลด์ Page
-   - **"2022" และ "2562" คือปีของเอกสาร ไม่ใช่เลขหน้าเด็ดขาด** -- เลขหน้าของ AAFP มีแค่ 1-9,
-     ของ URI 1-72, ของ Dose 1-53 เท่านั้น ห้ามเขียน "หน้า 2022" หรือ "p.2022" โดยเด็ดขาด
-     (เขียนผิดแล้วผู้ใช้กดลิงก์เจอ 404)
+   - **"2022" และ "2562" คือปีของเอกสาร ไม่ใช่เลขหน้าเด็ดขาด** -- เลขหน้าที่มีจริงของแต่ละเล่ม:
+     __PAGE_RANGES__ เท่านั้น ห้ามเขียนเลขหน้าเกินช่วงนี้ และห้ามเขียน "หน้า 2022" / "p.2022"
+     โดยเด็ดขาด (เขียนผิดแล้วผู้ใช้กดลิงก์เจอ 404)
+   - **หนึ่ง [Ref: Dose] = ยาหนึ่งตัว = เลขหน้าหนึ่งเลข** -- ยาแต่ละตัวในตาราง Dose อยู่หน้าของตัวเอง
+     ถ้าบรรทัดเดียวเสนอยาหลายตัว **ต้องใส่ [Ref: Dose, หน้า N] ต่อท้ายยาแต่ละตัวแยกกัน**
+     (ผิด: "ใช้ A, B หรือ C [Ref: Dose, หน้า 40, 43]" -- ถูก: "ใช้ A [Ref: Dose, หน้า 40],
+     B [Ref: Dose, หน้า 41] หรือ C [Ref: Dose, หน้า 43]")
 
 2.1 **หนึ่งวงเล็บ [Ref: ...] = หนึ่งเล่มเท่านั้น ห้าม merge ข้ามเล่มในวงเล็บเดียว:**
    - ถ้าใช้ข้อมูลจากสองเล่ม ให้เขียนแยกเป็นคนละวงเล็บติดกัน
@@ -1308,6 +1316,24 @@ Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช
 
 # ─── User Message Template ───────────────────────────────────────────────────
 
+# ช่วงเลขหน้าที่อ้างได้ = จำนวนหน้าจริงของ PDF แต่ละเล่ม (อ่านจากไฟล์ ไม่ hardcode ในข้อความ prompt)
+# เดิม hardcode ไว้ "Dose 1-53" ซึ่งเป็นจำนวน *ตัวยา* ไม่ใช่จำนวนหน้า (ตาราง Dose ฉบับใหม่มี 45 หน้า)
+# -> โมเดลถูกอนุญาตให้อ้างหน้า 46-53 ที่ไม่มีในเล่ม ทำให้กดลิงก์แล้วเด้งผิดหน้า/ไม่มีหน้า
+_PROMPT_SRC_LABEL = {"AAFP": "AAFP", "URI": "URI เด็ก 2562", "Dose": "Dose"}
+try:
+    _ranges = ", ".join(
+        f"{_PROMPT_SRC_LABEL.get(_s, _s)} = หน้า 1-{_n}"
+        for _s, _n in _pm.page_counts().items() if _n
+    )
+except Exception as _e:  # noqa: BLE001
+    print(f"[RAG] อ่านช่วงเลขหน้าจาก PDF ไม่ได้ ({_e})")
+    _ranges = ""
+SYSTEM_PROMPT = SYSTEM_PROMPT.replace(
+    "__PAGE_RANGES__",
+    _ranges or "AAFP / URI เด็ก 2562 / Dose -- ใช้เลขหน้าจากฟิลด์ Page ใน Context เท่านั้น",
+)
+
+
 USER_MESSAGE_TEMPLATE = """**คำถามปัจจุบัน:** {question}
 {anchor_note}{clinical_notes}
 ====================================================================
@@ -1436,11 +1462,18 @@ def _hit_to_chunk(hit) -> dict | None:
         return None
 
     payload = hit.payload or {}
+    # เลขหน้าที่ใช้ "อ้างอิง/เปิด PDF" ต้องเป็นหน้า PDF จริง -- metadata page ของเล่มที่มาจาก .md
+    # เป็นหน้าสุดท้ายของ section (เหลื่อมได้ถึง +7 หน้า) จึง override ด้วย page_map
+    # เก็บ meta_page ไว้ด้วย เพราะ index ขยายบริบท (by_section/by_page_table) คีย์ด้วยเลขเดิม
+    meta_page = payload.get("page", 0)
+    cid = payload.get("chunk_id", "")
+    page = _pm.real_page(cid, meta_page)
     return {
-        "chunk_id"      : payload.get("chunk_id", ""),
-        "content"       : payload.get("content", ""),
+        "chunk_id"      : cid,
+        "content"       : _pm.fix_content_page(payload.get("content", ""), page),
         "source"        : payload.get("source", ""),
-        "page"          : payload.get("page", 0),
+        "page"          : page,
+        "meta_page"     : meta_page,
         "journal_page"  : payload.get("journal_page"),
         "heading"       : payload.get("heading", ""),
         "type"          : payload.get("type", "text"),
@@ -1806,11 +1839,15 @@ def _load_chunk_index() -> dict:
 
 def _row_to_chunk(row: dict) -> dict:
     """แปลง row จาก chunks.jsonl -> chunk dict (ไม่มี vector score -> ทำเครื่องหมาย expanded)"""
+    meta_page = row.get("page", 0)
+    cid = row.get("chunk_id", "")
+    page = _pm.real_page(cid, meta_page)   # หน้า PDF จริง (ดู _hit_to_chunk)
     return {
-        "chunk_id"      : row.get("chunk_id", ""),
-        "content"       : row.get("content", ""),
+        "chunk_id"      : cid,
+        "content"       : _pm.fix_content_page(row.get("content", ""), page),
         "source"        : row.get("source", ""),
-        "page"          : row.get("page", 0),
+        "page"          : page,
+        "meta_page"     : meta_page,
         "journal_page"  : row.get("journal_page"),
         "heading"       : row.get("heading", ""),
         "type"          : row.get("type", "text"),
@@ -1836,18 +1873,22 @@ def _sibling_ids(chunk: dict, index: dict) -> list[str]:
     heading = chunk.get("heading") or ""
     is_table = ("Table" in heading) or chunk.get("type") in ("table_html", "dose_table")
 
+    # index คีย์ด้วย "เลขหน้า metadata ดิบ" (chunks.jsonl) ไม่ใช่หน้า PDF จริงที่แก้แล้ว --
+    # การจับกลุ่มพี่น้องต้องใช้เลขเดิม ไม่งั้น section/ตารางที่คร่อมหน้าจะหลุดจากกลุ่มเดียวกัน
+    mpage = chunk.get("meta_page", chunk.get("page"))
+
     # ตาราง / section ที่ถูกหั่นหลายชิ้น: ดึงชิ้นที่มี (source,page,heading) เดียวกันทั้งหมด
-    if is_table or len(index["by_section"].get((src, chunk.get("page"), heading), [])) > 1:
-        ids += index["by_section"].get((src, chunk.get("page"), heading), [])
+    if is_table or len(index["by_section"].get((src, mpage, heading), [])) > 1:
+        ids += index["by_section"].get((src, mpage, heading), [])
 
     # parent section: ถ้า heading เป็น "... > Table" ให้ดึงเนื้อหาหัวข้อแม่หน้าเดียวกันมาด้วย
     if heading.endswith("> Table"):
         parent = heading[: -len("> Table")].rstrip(" >")
-        ids += index["by_section"].get((src, chunk.get("page"), parent), [])
+        ids += index["by_section"].get((src, mpage, parent), [])
 
     # ตารางในหน้าเดียวกัน: ถ้าเลือกข้อความเกริ่นนำมา (เช่น AAFP หน้า 6 "TABLE 4 ...") แต่ตัวตาราง
     # ขนาดยาจริงถูกหั่นเป็นอีก chunk และ rank ต่ำ -> ดึงตารางในหน้าเดียวกันมาเสมอ ให้เห็นขนาดยาครบ
-    ids += index.get("by_page_table", {}).get((src, chunk.get("page")), [])
+    ids += index.get("by_page_table", {}).get((src, mpage), [])
 
     return ids
 
@@ -2134,31 +2175,26 @@ _REF_FULL_RE = _re.compile(r'\[Ref:\s*([^\]]*)\]')
 _PAGE_TOKEN_RE = _re.compile(r'(?:หน้า|page|p\.?)\s*([\d,\s]+)', _re.IGNORECASE)
 
 # ─── Reference-only PDF pages (backstop สำหรับ citation ที่เปิดไปโดนหน้าเอกสารอ้างอิง) ──
-# เหตุผล 2 ชั้น:
-#  (1) โมเดล "เดา" เลขหน้าที่เป็นเอกสารอ้างอิงมาใส่เอง (เช่น [Ref: AAFP, หน้า 9] ทั้งที่หน้า 9 = References)
-#  (2) **สำคัญ (feedback ล่าสุด):** เลขหน้าใน metadata กับ "หน้า PDF จริงที่เปิด" เหลื่อมกันแบบ
-#      ไม่คงที่ (offset 0..+6 จากตาราง/แผนภูมิ) -> frontend เปิด `#page=<เลขที่อ้าง>` เป็น "หน้า PDF จริง"
-#      ทำให้อ้าง "หน้า 58" (เนื้อ AOM ตาม metadata) แต่หน้า PDF 58 จริงคือ "เอกสารอ้างอิง" (เคสที่ผู้ใช้เจอ)
-# แก้: ตัดเลขหน้าที่ "เมื่อเปิดเป็นหน้า PDF จริงแล้วเป็นหน้าเอกสารอ้างอิง" ทิ้งจาก citation เสมอ
+# เหลือไว้กันกรณีเดียว: โมเดล "เดา" เลขหน้าที่เป็นเอกสารอ้างอิงมาใส่เอง
+# (เช่น [Ref: AAFP, หน้า 9] ทั้งที่หน้า 9 = References) -> ตัดเลขหน้านั้นทิ้งจาก citation
 #   - _PHYSICAL_REF_PAGES: หน้า PDF จริงที่เป็น "เอกสารอ้างอิง/References ล้วน" (ยืนยันด้วยการอ่าน PDF ตรงๆ
 #     ทีละหน้า -- ไฟล์ static ไม่ re-embed จึง hardcode ได้ปลอดภัย ไม่เพิ่ม dependency/latency)
 #     หน้าที่ปนเนื้อคลินิก (เช่น URI phys 59 = ฝีหลังคอหอย, phys 70 = คำแนะนำ) "ไม่ตัด"
-#   - รวมกับหน้าที่ metadata บอกว่าเป็น reference-only (จาก chunks.jsonl) เพื่อครอบคลุมทั้งสองมุม
-# หมายเหตุ collateral: เลข metadata ที่เป็นเนื้อคลินิกแต่บังเอิญตรงหน้า PDF อ้างอิง (URI 19, 58) จะถูกตัดหน้า
-#   ไปด้วย -- ยอมรับได้เพราะเนื้อเหล่านั้นถูกอ้างซ้ำผ่านหน้าอื่น (AOM: 53/56, common cold: 16-18)
+#   - รวมกับหน้าที่ chunks.jsonl บอกว่าเป็น reference-only (นับตามหน้า PDF จริงผ่าน page_map)
+# เดิมชั้นนี้ต้องแบกภาระ offset metadata<->PDF ด้วย (จึงมี collateral: เนื้อคลินิกที่เลข metadata
+# ไปตรงหน้าอ้างอิงพอดี เช่น URI 19/58 ถูกตัดหน้าไปด้วย) -- ตอนนี้ page_map แก้ที่ต้นทางแล้ว
+# ไม่มีเนื้อคลินิกเล่มไหนตกลงหน้าอ้างอิงอีก (ตรวจครบทุก chunk) จึงไม่มี collateral เหลือ
 _PHYSICAL_REF_PAGES: dict[str, set[str]] = {
-    # AAFP (metadata page == physical page): หน้า 8 = TABLE 5 Resources+References, 9 = References
+    # AAFP: หน้า 8 = ตอนท้ายบทความ + TABLE 5 Resources + เริ่ม References, 9 = References ล้วน
     "AAFP": {"8", "9"},
     # URI (P2_URI.pdf) หน้า PDF จริงที่เป็นรายการเอกสารอ้างอิงล้วน (ยืนยันจากการอ่านไฟล์)
     #  19=common cold refs, 26-27=pharyngitis refs, 42-46=sinusitis refs, 58=AOM refs, 71-72=retropharyngeal refs
     "URI": {"19", "26", "27", "42", "43", "44", "45", "46", "58", "71", "72"},
 }
-# บางเลขหน้าที่โมเดล "อ้างเนื้อคลินิกจริง" แต่ตรงกับหน้า PDF อ้างอิงพอดี (จาก offset) -> ไม่ตัดทิ้ง
-# แต่ "แก้เป็นหน้า PDF จริงของเนื้อนั้น" เพื่อให้ label มีเลขหน้า + กดแล้วตรงเนื้อ (ยืนยันจากการอ่าน PDF)
-#   URI meta p58 = แผนภูมิ AOM (URI_0075) ซึ่งอยู่หน้า PDF จริงหน้า 57
-_PAGE_REMAP: dict[str, dict[str, str]] = {
-    "URI": {"58": "57"},
-}
+# hook แก้เลขหน้ารายเล่ม (metadata -> หน้า PDF จริง) สำหรับเลขที่โมเดลเดามาเองโดยไม่มีใน context
+# ว่างได้: ตั้งแต่มี page_map (backend/page_map.py) เลขหน้าที่ส่งเข้า context เป็นหน้า PDF จริงแล้ว
+# จึงไม่ต้อง remap ทีหลัง (เดิมมี URI 58->57 ชดเชย offset -- ตอนนี้ URI_0075 = หน้า 56 ที่ถูกต้อง)
+_PAGE_REMAP: dict[str, dict[str, str]] = {}
 _REF_PAGE_CACHE: dict[str, set[str]] | None = None
 _CANON_TO_SRC = {"AAFP": "AAFP", "URI เด็ก 2562": "URI", "Dose": "Dose"}
 
@@ -2174,7 +2210,11 @@ def _reference_only_pages() -> dict[str, set[str]]:
     try:
         index = _load_chunk_index()
         for row in index.get("by_id", {}).values():
-            by_page[(row.get("source"), row.get("page"))].append(row)
+            # จัดกลุ่มด้วย "หน้า PDF จริงทุกหน้าที่ chunk นั้นกินพื้นที่" (เลขเดียวกับที่คำตอบอ้าง)
+            # ไม่ใช่ metadata page ที่เหลื่อม และไม่ใช่แค่หน้าเริ่ม -- ไม่งั้นหน้าที่ถูกคร่อมด้วย
+            # เนื้อคลินิก (เช่น URI หน้า 41 = แผนภูมิ acute sinusitis) จะถูกเหมาเป็นหน้าอ้างอิง
+            for page in _pm.covered_pages(row.get("chunk_id", ""), row.get("page")):
+                by_page[(row.get("source"), page)].append(row)
     except Exception as e:  # noqa: BLE001
         print(f"[RAG] reference-page map load failed: {e}")
     out: dict[str, set[str]] = defaultdict(set)
@@ -2192,20 +2232,115 @@ def _reference_only_pages() -> dict[str, set[str]]:
     return _REF_PAGE_CACHE
 
 
+def _last_drug_hit(seg: str) -> str | None:
+    """เลขหน้า Dose ของ "ยาตัวที่ถูกเอ่ยท้ายสุด" ในข้อความนี้ (None = ไม่พบ)
+
+    ข้ามชื่อยาที่อยู่ "ในวงเล็บ" เพราะวงเล็บหลังชื่อผลิตภัณฑ์คือ *ตัวยาสำคัญ* ของผลิตภัณฑ์นั้น
+    (brand gateway เติมให้เอง เช่น "Strepsils dry cough (ตัวยา: Dextromethorphan)") ไม่ใช่การอ้าง
+    ยาอีกตัว -- ถ้านับด้วยจะได้หน้าของตัวยาเดี่ยว (Dextromethorphan หน้า 36) แทนหน้าของผลิตภัณฑ์
+    (Strepsils dry cough หน้า 42) ซึ่งเป็นเคสที่ทำให้ "หน้า Dose เคลื่อน" ชัดที่สุด
+    ถ้าชื่อยาทุกตัวอยู่ในวงเล็บหมด (เช่น "ยาลดน้ำมูก (Chlorpheniramine)") ให้ใช้ตัวท้ายสุดตามปกติ
+    """
+    hits = _sg.dose_drug_hits(seg)
+    if not hits:
+        return None
+    depth, outside = 0, []
+    marks = {i: None for i, _ in hits}
+    for i, ch in enumerate(seg):
+        if i in marks:
+            marks[i] = depth
+        if ch == "(":
+            depth += 1
+        elif ch == ")" and depth:
+            depth -= 1
+    outside = [pg for i, pg in hits if not marks.get(i)]
+    return (outside or [pg for _, pg in hits])[-1]
+
+
 def _line_dose_pages(text: str, pos: int, lookback: str = "") -> tuple[list[str], list[str]]:
     """เลขหน้า Dose ของยาที่ถูกกล่าวถึงก่อน [Ref] ตำแหน่ง pos
-    คืน (line_pages, near_pages): line_pages = ยาที่อยู่บรรทัดเดียวกัน (ใช้แก้เลขหน้าผิดได้),
-    near_pages = ยาตัวล่าสุดใน ~300 ตัวอักษรก่อนหน้า (ใช้เติมหน้าให้ [Ref: Dose] ที่ไม่มีหน้าเท่านั้น)"""
+
+    คืน (line_pages, near_pages)
+      line_pages = **หน้าของยา "ตัวที่อยู่ใกล้ [Ref] ที่สุด" หน้าเดียว** (ground truth ของ chip นั้น)
+      near_pages = ยาตัวล่าสุดใน ~300 ตัวอักษรก่อนหน้า (ใช้เติมหน้าเมื่อบรรทัดนั้นหายาไม่เจอ)
+
+    เดิมคืน "หน้าของยาทุกตัวในบรรทัด (สูงสุด 3)" -> บรรทัดที่ไล่ยาหลายตัวแล้วปิดท้ายด้วย [Ref: Dose]
+    ครั้งเดียวจะได้ "[Ref: Dose, หน้า 41, 43]" และ frontend อ่านเฉพาะ "เลขแรก" -> กดแล้วเปิดหน้าของยา
+    ตัวแรกของบรรทัด ไม่ใช่ยาที่ chip ต่อท้ายอยู่ (เคสที่ผู้ใช้เจอว่า "หน้า Dose เคลื่อน" -- และเคลื่อนหนัก
+    ที่หน้าท้าย ๆ เพราะยาพ่นคอ/ยาอม/ยาละลายเสมหะ (หน้า 38-45) เป็นกลุ่มที่โมเดลไล่หลายตัวในบรรทัดเดียว)
+    """
     try:
         before = (lookback or "") + text[:pos]
         line = before[before.rfind("\n") + 1:]
         seg = line[line.rfind("]") + 1:]
-        hits = _sg.dose_drug_hits(seg) or _sg.dose_drug_hits(line)
-        line_pages = list(dict.fromkeys(p for _, p in hits))[:3]
-        near = _sg.dose_drug_hits(before[-300:])
-        return line_pages, ([near[-1][1]] if near else [])
+        # ยาตัวที่ "ใกล้ [Ref] ที่สุด" = ตัวสุดท้ายที่ถูกกล่าวถึงก่อนตำแหน่งนี้
+        hits = _last_drug_hit(seg) or _last_drug_hit(line)
+        line_pages = [hits] if hits else []
+        near = _last_drug_hit(before[-300:])
+        return line_pages, ([near] if near else [])
     except Exception:  # noqa: BLE001
         return [], []
+
+
+def _context_pages(chunks: list[dict] | None) -> dict[str, list[str]]:
+    """{source: [เลขหน้าที่ Context ให้มาจริง]} เรียงตามความเกี่ยวข้อง (chunk ที่ถูกเลือก > ตัวขยาย)
+
+    ใช้เป็น "รายชื่อหน้าที่อ้างได้" ของ AAFP/URI: โมเดลต้องอ้างหน้าที่มันเห็นจริงใน Context เท่านั้น
+    รวมทุกหน้าที่ chunk นั้นกินพื้นที่ (chunk คร่อมหน้าได้) เพื่อไม่ตัดหน้าที่ถูกต้องทิ้ง
+    """
+    out: dict[str, list[str]] = defaultdict(list)
+    for expanded in (False, True):                      # chunk ที่ถูกเลือกมาก่อน แล้วค่อยตัวขยาย
+        for c in chunks or []:
+            if bool(c.get("expanded")) is not expanded:
+                continue
+            src = c.get("source")
+            if not src or src == "Dose":                # Dose ใช้ "หน้าของยา" เป็น ground truth แทน
+                continue
+            for pg in _pm.covered_pages(c.get("chunk_id", ""), c.get("page")):
+                p = str(pg)
+                if p.isdigit() and p not in out[src]:
+                    out[src].append(p)
+    return dict(out)
+
+
+def _context_texts(chunks: list[dict] | None) -> dict[tuple, str]:
+    """{(source, page): เนื้อ chunk รวม} -- ใช้เทียบว่า "ประโยคที่อ้าง" ตรงกับหน้าไหนที่สุด"""
+    out: dict[tuple, str] = defaultdict(str)
+    for c in chunks or []:
+        src = c.get("source")
+        if not src or src == "Dose":
+            continue
+        body = _content_body(c.get("content", "")).lower()
+        for pg in _pm.covered_pages(c.get("chunk_id", ""), c.get("page")):
+            out[(src, str(pg))] += " " + body
+    return dict(out)
+
+
+_WORD_RE = _re.compile(r"[A-Za-z]{4,}|\d{2,}")
+
+
+def _best_context_page(claim_text: str, src: str, allowed: list[str],
+                       texts: dict[tuple, str] | None) -> str | None:
+    """หน้าใน Context ที่เนื้อหา "ตรงกับประโยคที่อ้าง" ที่สุด (None = ตัดสินไม่ได้)
+
+    ให้คะแนนจากศัพท์เฉพาะที่เทียบได้ตรง ๆ (ชื่อยา/ตัวเลข/คำอังกฤษ) เพราะเนื้อ URI เป็นไทย
+    แต่ชื่อยาและขนาดยาเป็นอังกฤษ/ตัวเลข -- เป็นสัญญาณที่ระบุหน้าได้จริง ไม่ใช่การเดา
+    """
+    if not allowed:
+        return None
+    if len(allowed) == 1 or not texts:
+        return allowed[0]
+    keys = set(_WORD_RE.findall((claim_text or "").lower()))
+    keys -= {"page", "หน้า", "table", "dose", "aafp"}
+    if not keys:
+        return None
+    best, best_score = None, 0
+    for p in allowed:
+        body = texts.get((src, p), "")
+        score = sum(1 for k in keys if k in body)
+        if score > best_score:
+            best, best_score = p, score
+    return best
 
 
 def _canon_one_ref(
@@ -2213,12 +2348,18 @@ def _canon_one_ref(
     dose_pages: list[str] | None = None,
     line_pages: list[str] | None = None,
     near_pages: list[str] | None = None,
+    ctx_pages: dict[str, list[str]] | None = None,
+    ctx_texts: dict[tuple, str] | None = None,
+    claim_text: str = "",
 ) -> str | None:
-    """ทำ [Ref] ก้อนเดียวให้เป็นมาตรฐาน (คืน None ถ้าว่าง)
+    """ทำ [Ref] ก้อนเดียวให้เป็นมาตรฐาน + **บังคับให้เลขหน้าตรงหน้า PDF จริง** (คืน None ถ้าว่าง)
 
     dose_pages: เลขหน้าของตาราง Dose ที่อยู่ใน Context จริงของคำตอบนี้ (เรียงตามความเกี่ยวข้อง)
       ใช้เติมเลขหน้าให้ [Ref: Dose] ที่ 'อ้างดื้อๆ ไม่บอกหน้า' -> กันกดแล้วเด้งไปหน้าแรกของ PDF (ผิด)
       ยาแต่ละตัวใน Dose อยู่หน้าเดียว จึงเติมได้ปลอดภัยเมื่อ Context มีหน้า Dose ชัดเจน
+    ctx_pages/ctx_texts: หน้า (และเนื้อ) ของ AAFP/URI ที่ Context ให้มาจริง -> ใช้ตรวจว่าเลขหน้าที่
+      โมเดลเขียนมา "มีอยู่ใน Context จริงไหม" ถ้าไม่มีก็แก้เป็นหน้าที่เนื้อหาตรงกับประโยคนั้นที่สุด
+    claim_text: ข้อความก่อน [Ref] ก้อนนี้ (ประโยคที่อ้าง) -- ใช้จับคู่เนื้อหากับหน้า
     """
     part = part.strip().strip(";,. ").strip()
     if not part:
@@ -2241,14 +2382,17 @@ def _canon_one_ref(
     else:
         src = part.split(",")[0].strip()
 
+    src_key = _CANON_TO_SRC.get(src, src)
+    # ขอบเขตเลขหน้า = จำนวนหน้าจริงของ PDF เล่มนั้น (อ่านจากไฟล์ ไม่ hardcode)
+    # กันเลขที่เกินเล่ม เช่น "Dose หน้า 53" (53 = จำนวนตัวยา ไม่ใช่จำนวนหน้า -- Dose มี 45 หน้า)
+    limit = _pm.max_page(src_key) or 100
     pages: list[str] = []
     for m in _PAGE_TOKEN_RE.finditer(part):
         for numtok in _re.findall(r"\d+", m.group(1)):
             n = int(numtok)
-            if 1 <= n <= 100 and numtok not in pages:   # 1-100 = เลขหน้าจริง; ปี/journal (>100) ตัดทิ้ง
+            if 1 <= n <= limit and numtok not in pages:  # เกินเล่ม/ปีเอกสาร (2022, 2562) -> ตัดทิ้ง
                 pages.append(numtok)
     had_pages = bool(pages)
-    src_key = _CANON_TO_SRC.get(src, src)
     # (1) remap เลขหน้าที่ตรงกับหน้า PDF อ้างอิงพอดี -> หน้า PDF จริงของเนื้อคลินิกนั้น (label มีเลขหน้า+กดตรง)
     remap = _PAGE_REMAP.get(src_key, {})
     if remap:
@@ -2260,13 +2404,27 @@ def _canon_one_ref(
     # Dose: เลขหน้าต้องตรง "ยาที่เขียนในบรรทัดนั้น" (ยาแต่ละตัวอยู่หน้าเดียวใน Dose table)
     #  - อ้างหน้าที่ไม่ใช่หน้าของยาใดในบรรทัด (เช่น เลขหน้าตารางเก่า) -> แก้เป็นหน้าของยาในบรรทัด
     #  - ไม่มีเลขหน้า -> เติมจากยาในบรรทัด / ยาตัวล่าสุดที่เพิ่งกล่าวถึง / หน้า Dose ใน Context ตามลำดับ
-    if is_dose and line_pages and (not pages or not any(p in line_pages for p in pages)):
-        pages = list(line_pages)
-    if not pages and is_dose and near_pages:
-        pages = list(near_pages)
-    # Dose ที่ไม่มีเลขหน้า -> เติมหน้าจาก Context (ถ้ามีหน้า Dose ที่ชัดเจน) กันลิงก์เด้งหน้าแรก
-    if not pages and is_dose and dose_pages:
-        pages = [dose_pages[0]]
+    if is_dose:
+        # ยาที่อยู่ใกล้ chip ที่สุดเป็น ground truth -> ใช้หน้าของยาตัวนั้น "หน้าเดียว" เสมอ
+        if line_pages:
+            pages = [line_pages[0]]
+        elif near_pages:
+            pages = [near_pages[0]]
+        elif dose_pages:
+            # หายาในบรรทัดไม่เจอ -> เติมจากหน้า Dose ที่เกี่ยวข้องสุดใน Context (กันลิงก์เด้งหน้าแรก)
+            pages = [dose_pages[0]]
+        # [Ref: Dose] = ยา 1 ตัว = 1 หน้า ห้ามเหลือหลายเลข (frontend อ่านเฉพาะเลขแรก -> กดแล้วผิดหน้า)
+        pages = pages[:1]
+    else:
+        # AAFP/URI: อ้างได้เฉพาะ "หน้าที่ Context ให้มาจริง" -- เลขที่โมเดลเดา/หยิบจาก chunk อื่น
+        # ให้แก้เป็นหน้าที่เนื้อหาตรงกับประโยคนั้นที่สุด (ไม่ใช่ปล่อยผ่านหรือทิ้ง)
+        allowed = (ctx_pages or {}).get(src_key)
+        if allowed:
+            keep = [p for p in pages if p in allowed]
+            if not keep:
+                fixed = _best_context_page(claim_text, src_key, allowed, ctx_texts)
+                keep = [fixed] if fixed else []
+            pages = keep[:2]
     if pages:
         return f"[Ref: {src}, หน้า {', '.join(pages)}]"
     # โมเดลเคยระบุหน้า แต่ถูกตัดหมดเพราะเป็นหน้าเอกสารอ้างอิง -> ทิ้งทั้งก้อน (อย่าโชว์ label ไร้เลขหน้า)
@@ -2276,9 +2434,12 @@ def _canon_one_ref(
     return f"[Ref: {src}]"
 
 
-def _sanitize_citations(answer: str, dose_pages: list[str] | None = None, lookback: str = "") -> str:
+def _sanitize_citations(answer: str, dose_pages: list[str] | None = None, lookback: str = "",
+                       ctx_pages: dict[str, list[str]] | None = None,
+                       ctx_texts: dict[tuple, str] | None = None) -> str:
     """normalize ทุกก้อน [Ref: ...] ในคำตอบ (แยก merge, ตัดปีที่ถูกใช้เป็นหน้า, canonical ชื่อเล่ม,
-    เติม/แก้หน้า Dose ให้ตรงยาที่กล่าวถึง) -- lookback = ข้อความที่ส่งออกไปแล้ว (ตอน streaming)"""
+    เติม/แก้หน้า Dose ให้ตรงยาที่กล่าวถึง, บังคับหน้า AAFP/URI ให้เป็นหน้าที่ Context มีจริง)
+    -- lookback = ข้อความที่ส่งออกไปแล้ว (ตอน streaming)"""
     if not answer:
         return answer
 
@@ -2290,6 +2451,10 @@ def _sanitize_citations(answer: str, dose_pages: list[str] | None = None, lookba
         line_pages: list[str] = []
         near_pages: list[str] = []
         drop_dose = False
+        # ประโยคที่ [Ref] ก้อนนี้ต่อท้ายอยู่ -> ใช้จับคู่เนื้อหากับหน้าของ AAFP/URI
+        claim_before = (lookback or "") + answer[: m.start()]
+        claim_text = claim_before[max(0, len(claim_before) - 320):]
+        claim_text = claim_text[claim_text.rfind("\n") + 1:] or claim_text[-160:]
         if "dose" in inner.lower() or "ขนาดยา" in inner:
             line_pages, near_pages = _line_dose_pages(answer, m.start(), lookback)
             before = (lookback or "") + answer[: m.start()]
@@ -2304,7 +2469,8 @@ def _sanitize_citations(answer: str, dose_pages: list[str] | None = None, lookba
             subparts = [sp for sp in subparts if not ("dose" in sp.lower() or "ขนาดยา" in sp)]
             if not subparts:
                 return ""
-        results = [_canon_one_ref(sp, dose_pages, line_pages, near_pages) for sp in subparts]
+        results = [_canon_one_ref(sp, dose_pages, line_pages, near_pages,
+                                  ctx_pages, ctx_texts, claim_text) for sp in subparts]
         outs = [r for r in results if r]
         if outs:
             return " ".join(outs)
@@ -2314,6 +2480,11 @@ def _sanitize_citations(answer: str, dose_pages: list[str] | None = None, lookba
         return m.group(0)
 
     return _REF_FULL_RE.sub(_repl, answer)
+
+
+def _citation_guard(chunks: list[dict] | None) -> dict:
+    """ชุดข้อมูลสำหรับตรวจเลขหน้า citation (คำนวณครั้งเดียวต่อคำตอบ แล้วส่งต่อทุกรอบ flush)"""
+    return {"ctx_pages": _context_pages(chunks), "ctx_texts": _context_texts(chunks)}
 
 
 def _dose_pages_in_context(chunks: list[dict]) -> list[str]:
@@ -2329,12 +2500,17 @@ def _dose_pages_in_context(chunks: list[dict]) -> list[str]:
 
 
 def _postprocess_answer(text: str, dose_pages: list[str] | None = None, lookback: str = "",
-                        dual_map: dict | None = None) -> str:
-    """citation normalize + brand gateway (ชื่อการค้าต้องมีตัวยาสำคัญกำกับ) + ชื่อหมวดยาตามรูปแบบ (ยาพ่นคอ/ยาอม/ยากลั้วคอ)"""
+                        dual_map: dict | None = None, guard: dict | None = None) -> str:
+    """citation normalize + brand gateway (ชื่อการค้าต้องมีตัวยาสำคัญกำกับ) + ชื่อหมวดยาตามรูปแบบ (ยาพ่นคอ/ยาอม/ยากลั้วคอ)
+    guard = ผลของ _citation_guard(chunks): หน้าที่ Context ให้มาจริง (ใช้บังคับเลขหน้า AAFP/URI)"""
     if not text:
         return text
     prefix = lookback[lookback.rfind("\n") + 1:] if lookback else ""
-    out = _sg.apply_brand_gateway(_sanitize_citations(text, dose_pages, lookback), line_prefix=prefix)
+    g = guard or {}
+    out = _sg.apply_brand_gateway(
+        _sanitize_citations(text, dose_pages, lookback,
+                            g.get("ctx_pages"), g.get("ctx_texts")),
+        line_prefix=prefix)
     try:
         out = _sg.fix_form_labels(out)
     except Exception as e:  # noqa: BLE001
@@ -2415,7 +2591,7 @@ def _relabel_dose_sources(sources: list[dict], answer: str) -> None:
 
 def _stream_flush(
     pending: str, final: bool, dose_pages: list[str] | None = None, lookback: str = "",
-    dual_map: dict | None = None
+    dual_map: dict | None = None, guard: dict | None = None
 ) -> tuple[str, str]:
     """
     ใช้ตอน streaming: normalize citation ก่อนส่งให้ผู้ใช้เห็น (frontend เรนเดอร์ข้อความสตรีมสดๆ
@@ -2424,7 +2600,7 @@ def _stream_flush(
     คืน (emit, remaining): emit = ส่วนที่ปลอดภัยและ sanitize แล้ว, remaining = กันไว้ต่อ chunk ถัดไป
     """
     if final:
-        return _postprocess_answer(pending, dose_pages, lookback, dual_map), ""
+        return _postprocess_answer(pending, dose_pages, lookback, dual_map, guard), ""
     cut = len(pending)
     open_idx = pending.rfind("[")
     close_idx = pending.rfind("]")
@@ -2432,7 +2608,10 @@ def _stream_flush(
         cut = open_idx
     nl = pending.rfind("\n", 0, cut)
     # ชื่อการค้า -> brand gateway ต้องเห็นทั้งบรรทัด; ชื่อยาปฏิชีวนะ -> ต้องเห็นทั้งบรรทัดก่อนเติม [Ref] ของอีกเล่ม
-    if _sg.mentions_brand(pending[nl + 1:cut]) or (dual_map and _sg.mentions_antibiotic(pending[nl + 1:cut])):
+    # ชื่อหมวดยาเฉพาะที่คอ -> ต้องเห็น "ทั้งบรรทัดหัวข้อ" ก่อน ไม่งั้นหัวข้อถูกหั่นคนละ chunk
+    if (_sg.mentions_brand(pending[nl + 1:cut])
+            or (dual_map and _sg.mentions_antibiotic(pending[nl + 1:cut]))
+            or _sg.may_become_form_label(pending[nl + 1:cut])):
         cut = nl + 1
     # หัวข้อหมวดยาเฉพาะที่คอ (ยาพ่นคอ/ยาอม/ยากลั้วคอ) ต้องเห็นรายการยาใต้หัวข้อทั้งบล็อกก่อน จึงตรวจชื่อหมวดได้
     try:
@@ -2441,7 +2620,7 @@ def _stream_flush(
             cut = open_label
     except Exception as e:  # noqa: BLE001
         print(f"[RAG] form-label stream guard skipped: {e}")
-    return _postprocess_answer(pending[:cut], dose_pages, lookback, dual_map), pending[cut:]
+    return _postprocess_answer(pending[:cut], dose_pages, lookback, dual_map, guard), pending[cut:]
 
 
 def _guideline_sources(chunks: list[dict], weak_context: bool) -> tuple[list[dict], set]:
@@ -3134,7 +3313,8 @@ def generate_answer(
         else:
             answer = f"[ระบบ] เกิดข้อผิดพลาดในการสร้างคำตอบ: {err_str}"
 
-    answer = _postprocess_answer(answer, dose_pages, dual_map=dual_map)
+    answer = _postprocess_answer(answer, dose_pages, dual_map=dual_map,
+                                 guard=_citation_guard(chunks))
     sources, seen = _guideline_sources(chunks, weak_context)
     _append_external_refs(sources, seen, answer)
     _append_dose_sources(sources, seen, answer)
@@ -3219,6 +3399,7 @@ async def generate_answer_stream(
     # แหล่งอ้างอิงจาก Guideline (กรองด้วย similarity จริง) — external refs เติมหลังได้คำตอบ
     sources, seen = _guideline_sources(chunks, weak_context)
     dose_pages = _dose_pages_with_catalog(chunks, cat_drugs)
+    guard = _citation_guard(chunks)   # หน้าที่ Context ให้มาจริง -> ใช้บังคับเลขหน้าทุกรอบ flush
 
     try:
         chat     = _chat_model.start_chat(history=gemini_history)
@@ -3236,7 +3417,7 @@ async def generate_answer_stream(
                 # normalize citation \u0e23\u0e30\u0e2b\u0e27\u0e48\u0e32\u0e07\u0e2a\u0e15\u0e23\u0e35\u0e21 (frontend \u0e40\u0e23\u0e19\u0e40\u0e14\u0e2d\u0e23\u0e4c\u0e02\u0e49\u0e2d\u0e04\u0e27\u0e32\u0e21\u0e2a\u0e14\u0e46)
                 pending += chunk.text
                 emit, pending = _stream_flush(pending, final=False, dose_pages=dose_pages,
-                                              lookback=shown[-400:], dual_map=dual_map)
+                                              lookback=shown[-400:], dual_map=dual_map, guard=guard)
                 if emit:
                     shown += emit
                     yield json.dumps({"type": "chunk", "content": emit}) + "\n"
@@ -3248,7 +3429,7 @@ async def generate_answer_stream(
 
         # flush \u0e2a\u0e48\u0e27\u0e19\u0e17\u0e35\u0e48\u0e01\u0e31\u0e19\u0e44\u0e27\u0e49 (\u0e40\u0e0a\u0e48\u0e19 [Ref: ...] \u0e01\u0e49\u0e2d\u0e19\u0e2a\u0e38\u0e14\u0e17\u0e49\u0e32\u0e22)
         emit, pending = _stream_flush(pending, final=True, dose_pages=dose_pages, lookback=shown[-400:],
-                                      dual_map=dual_map)
+                                      dual_map=dual_map, guard=guard)
         if emit:
             shown += emit
             yield json.dumps({"type": "chunk", "content": emit}) + "\n"
@@ -3260,7 +3441,8 @@ async def generate_answer_stream(
 
         # normalize citations \u0e17\u0e31\u0e49\u0e07\u0e01\u0e49\u0e2d\u0e19 \u0e41\u0e25\u0e49\u0e27\u0e04\u0e48\u0e2d\u0e22\u0e14\u0e36\u0e07\u0e2d\u0e49\u0e32\u0e07\u0e2d\u0e34\u0e07\u0e20\u0e32\u0e22\u0e19\u0e2d\u0e01 (URL) \u0e08\u0e32\u0e01\u0e02\u0e49\u0e2d\u0e04\u0e27\u0e32\u0e21\u0e04\u0e33\u0e15\u0e2d\u0e1a
         # full_answer = ข้อความที่ผู้ใช้เห็นจริง (บันทึกลงประวัติให้ตรงกับที่สตรีมออกไป)
-        full_answer = shown if shown else _postprocess_answer(full_answer, dose_pages, dual_map=dual_map)
+        full_answer = shown if shown else _postprocess_answer(full_answer, dose_pages,
+                                                              dual_map=dual_map, guard=guard)
         _append_external_refs(sources, seen, full_answer)
         _append_dose_sources(sources, seen, full_answer)
         _relabel_dose_sources(sources, full_answer)
