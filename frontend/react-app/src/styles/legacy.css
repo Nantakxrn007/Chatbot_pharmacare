@@ -1249,6 +1249,21 @@
             font-weight: 600;
         }
 
+        /* การตัดสินใจ "ไม่จ่ายยาปฏิชีวนะ" — ชิปแดงให้เห็นชัดทันทีตาม feedback (RDU/stewardship) */
+        .ai-no-atb {
+            color: #b42318;
+            font-weight: 700;
+            background: #fdecea;
+            border: 1px solid #f5c6c2;
+            border-radius: 6px;
+            padding: 0 5px;
+        }
+
+        .ai-text strong .ai-no-atb,
+        .ai-no-atb strong {
+            color: #b42318;
+        }
+
         .ai-prob-badge {
             display: inline-flex;
             align-items: center;

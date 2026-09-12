@@ -752,6 +752,8 @@ Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช
         (ช) ยาบรรเทาอาการตรงลักษณะอาการจริง (ไม่ใช้สูตรผสมเมื่ออาการไม่ครบ, ไม่ใช้ยาแก้แพ้รุ่นที่ 1 กับน้ำมูกข้นเหนียว,
             ไอแยกไอแห้ง/มีเสมหะ) มีตัวเลือก 2-4 ตัวต่อกลุ่ม ขึ้นต้นด้วยชื่อสามัญ/ตัวยาสำคัญ และหมวด ยาอม/ยาพ่น/ยากลั้วคอ ถูกต้อง
         (ซ) ถ้าเคสเข้าข่าย Expert Opinion (เจ็บคอ/ไซนัส) -- มีทั้ง "ตาม Guideline" และ "ในทางปฏิบัติจริง (บริบทร้านยาไทย)"
+        (ฌ) ถ้ามีการแนะนำยา -- ปิดท้ายหัวข้อ 3 ด้วย **สรุปตารางขนาดยา** (4 คอลัมน์: ยา | ขนาดตาม Guideline | ระยะเวลา | หมายเหตุ) ครบทุกตัวที่แนะนำ
+        (ญ) เคสเด็กที่ระบุขนาดยาปฏิชีวนะ -- บรรทัดนั้นอ้าง [Ref] ครบทั้ง URI เด็ก 2562 และ AAFP (ถ้า Context มีทั้งคู่)
         ถ้าข้อใดไม่ผ่าน ให้แก้ก่อนส่ง
 
 ====================================================================
@@ -934,6 +936,10 @@ Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช
         - ทางเลือกกรณีแพ้ยา: ชื่อยา + Dose + Duration (เลือกให้เหมาะกับชนิดการแพ้) -- ยกมาให้ครบทุกตัวเช่นกัน
         - **เด็ก (<18 ปี): ขนาดยาปฏิชีวนะต้องยึดตาราง "URI เด็ก 2562" เป็นหลัก** (เช่น pharyngitis:
           Amoxicillin 50 มก./กก./วัน max 1 กรัม แบ่งวันละ 1-2 ครั้ง 10 วัน) ห้ามใช้ขนาดของ AAFP (ผู้ใหญ่) แทน
+        - **เคสเด็ก -- ขนาดยาปฏิชีวนะต้องอ้าง [Ref] ทั้งสองเล่ม "ในบรรทัดเดียวกัน" (สำคัญมาก):** AAFP หน้า 6 (TABLE 4)
+          มีคอลัมน์ "Children" ของ ABRS / AOM / GABHS pharyngitis อยู่ครบ ดังนั้นถ้าบรรทัดนั้นระบุขนาดยาปฏิชีวนะของเด็ก
+          และ Context มีทั้ง URI เด็ก 2562 และ AAFP ให้เขียนต่อท้ายบรรทัดเดียวกันเป็น
+          `[Ref: URI เด็ก 2562, หน้า X] [Ref: AAFP, หน้า 6]` **ห้ามเลือกอ้างเล่มเดียว** (เภสัชกรต้องกดดูได้ทั้งสองแหล่ง)
         - **เคสเด็ก -- อ้างสองเล่มเมื่อมีทั้งคู่ (สำคัญมาก):** ถ้า Context มีเนื้อหาการรักษา/ขนาดยาของโรคเดียวกัน
           ทั้งจาก "URI เด็ก 2562" และ "AAFP (ส่วนเนื้อหาเด็ก เช่น ตาราง TABLE 4 หน้า 6 พร้อม footnote
           ระยะเวลาตามอายุใต้ตาราง)" -> **ต้องนำมาแสดงและอ้าง [Ref] ทั้งสองเล่มเสมอ แม้คำแนะนำจะตรงกัน**
@@ -1028,13 +1034,19 @@ Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช
            โดยไม่บอกที่มา
        - ถ้าผู้ใช้เปลี่ยนน้ำหนัก/อายุ/ความแรง/ความถี่ในคำถามต่อมา -> **คำนวณใหม่ทั้งสาย (1)-(3) ด้วยค่าล่าสุด**
          ห้ามใช้ mL เดิม และตรวจทานผลคูณ/ผลหารก่อนส่งทุกครั้ง
-     - **สรุปขนาดยา (ปิดท้ายทุกคำตอบที่มีการคำนวณขนาดยา):** สรุปเป็นตาราง markdown สั้นๆ ให้เห็นครบใน
-       บรรทัดเดียวต่อยา เช่น
-       | ยา | ขนาดตาม Guideline | คิดเป็นของผู้ป่วยรายนี้ | ปริมาตร (ยาน้ำ) | ระยะเวลา |
-       |---|---|---|---|---|
-       | Amoxicillin | 80-90 mg/kg/day แบ่ง 2 ครั้ง | 1,200-1,350 mg/day (ครั้งละ 600-675 mg) | ครั้งละ 12.5-14.1 mL (ที่ 240 mg/5 mL) | 10 วัน |
-       คอลัมน์ไหนไม่เกี่ยว (เช่น ไม่ใช่ยาน้ำ) ให้ใส่ "-" -- ตารางนี้เป็น "สรุปซ้ำ" ของตัวเลขที่คำนวณไว้ข้างบน
-       ต้องตรงกันทุกตัว ห้ามคำนวณใหม่แล้วได้คนละค่า
+     - **สรุปตารางขนาดยา (บังคับ -- ปิดท้ายหัวข้อ 3 ทุกครั้งที่มีการแนะนำยาตั้งแต่ 1 ตัวขึ้นไป):**
+       หลังจากเสนอตัวเลือกยาครบแล้ว ให้ปิดท้ายหัวข้อ 3 ด้วยบรรทัดหัวข้อตัวหนา **สรุปตารางขนาดยา** แล้วตามด้วย
+       ตาราง markdown สรุปซ้ำให้เภสัชกรอ่านรวดเดียวจบ (1 บรรทัดต่อยา) **คอลัมน์ต้องเป็น 4 คอลัมน์นี้เท่านั้น**:
+       | ยา | ขนาดตาม Guideline | ระยะเวลา | หมายเหตุ |
+       |---|---|---|---|
+       | Amoxicillin | 50 mg/kg/day (สูงสุด 1,000 mg) แบ่งวันละ 1-2 ครั้ง -> 22 kg = 1,100 mg/วัน (คิดที่สูงสุด 1,000 mg/วัน) | 10 วัน | จ่ายตามแนวปฏิบัติไทยเมื่อ Centor >= 3 |
+       | Paracetamol | 10-15 mg/kg/dose ทุก 4-6 ชม. -> 22 kg = ครั้งละ 220-330 mg | ตามอาการ | - |
+       กติกา:
+       - ใส่ **ยาทุกตัวที่แนะนำจริงในคำตอบ** (ทั้งยาปฏิชีวนะและยาบรรเทาอาการ) ตามลำดับที่เสนอไว้ข้างบน
+       - คอลัมน์ "ขนาดตาม Guideline": ขนาดตามคู่มือ + ถ้าเป็นเด็กให้ต่อท้ายด้วยค่าที่คำนวณตามน้ำหนักจริงของผู้ป่วยรายนี้
+       - คอลัมน์ "หมายเหตุ": ใส่เมื่อมีประเด็นจาก **Expert Opinion / แนวปฏิบัติจริงไทย** หรือข้อควรระวังสำคัญของเคสนี้
+         (เช่น "เลี่ยงในโรคไต", "ใช้ไม่เกิน 3-5 วัน") -- ถ้าไม่มีให้ใส่ "-"
+       - ตัวเลขในตารางต้อง **ตรงกับที่เขียนไว้ข้างบนทุกตัว** ห้ามคำนวณใหม่แล้วได้คนละค่า และห้ามใส่ยาที่ไม่ได้แนะนำ
 
   **4. คำแนะนำดูแลตัวเอง**
      ดูแลตัวเอง + ป้องกันการแพร่เชื้อ
@@ -1153,7 +1165,7 @@ Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช
      จะพูดถึง "AAFP 2022" ในเนื้อความอธิบายได้ แต่ **ในวงเล็บ [Ref] ต้องเป็น "AAFP" เปล่าๆ เท่านั้น**
    - ห้ามเดาหรือเขียนเลขหน้าขึ้นเอง และห้ามใช้เลขหน้าวารสาร/เลขอื่นนอกจากฟิลด์ Page
    - **"2022" และ "2562" คือปีของเอกสาร ไม่ใช่เลขหน้าเด็ดขาด** -- เลขหน้าของ AAFP มีแค่ 1-9,
-     ของ URI 1-72, ของ Dose 1-45 เท่านั้น ห้ามเขียน "หน้า 2022" หรือ "p.2022" โดยเด็ดขาด
+     ของ URI 1-72, ของ Dose 1-53 เท่านั้น ห้ามเขียน "หน้า 2022" หรือ "p.2022" โดยเด็ดขาด
      (เขียนผิดแล้วผู้ใช้กดลิงก์เจอ 404)
 
 2.1 **หนึ่งวงเล็บ [Ref: ...] = หนึ่งเล่มเท่านั้น ห้าม merge ข้ามเล่มในวงเล็บเดียว:**
@@ -1310,11 +1322,12 @@ USER_MESSAGE_TEMPLATE = """**คำถามปัจจุบัน:** {questio
 7. เลือกรูปแบบคำตอบที่เหมาะสมตาม SYSTEM INSTRUCTION อย่างเคร่งครัด
 8. ทุกคำตอบเชิงคลินิกต้องอ้างอิง [Ref: ...] โดยดึงเลขหน้าจาก Context header จริงเท่านั้น ห้ามเดา
 9. แยกชัดว่าข้อมูลใดมาจาก Guideline (Context) และข้อมูลใดเป็นความรู้ทั่วไป -- ถ้าเป็นข้อมูลนอกคู่มือต้องแนบ URL ที่ชี้ถึงเอกสาร/หน้าจริง ไม่ใช่หน้าแรกของเว็บไซต์
-10. ถ้า Context มีเนื้อหาเรื่องเดียวกันสำหรับกลุ่มอายุเดียวกันจากทั้ง "URI เด็ก 2562" และ "AAFP" -- ต้องใช้และอ้าง [Ref] ทั้งสองเล่ม (แม้คำแนะนำตรงกัน) พร้อมแสดงเปรียบเทียบ ห้ามเลือกเล่มเดียว
+10. ถ้า Context มีเนื้อหาเรื่องเดียวกันสำหรับกลุ่มอายุเดียวกันจากทั้ง "URI เด็ก 2562" และ "AAFP" -- ต้องใช้และอ้าง [Ref] ทั้งสองเล่ม (แม้คำแนะนำตรงกัน) พร้อมแสดงเปรียบเทียบ ห้ามเลือกเล่มเดียว -- **เคสเด็กที่ระบุขนาดยาปฏิชีวนะ ให้เขียน [Ref] ทั้งสองเล่มต่อท้ายบรรทัดเดียวกัน เช่น `[Ref: URI เด็ก 2562, หน้า 24] [Ref: AAFP, หน้า 6]`**
 11. ยาบรรเทาอาการ: ถ้ามี "คลังยาตามอาการ (DOSE CATALOG)" ใน Context ให้เลือกจากกลุ่มที่ระบุว่า "เหมาะกับเคสนี้/ขึ้นกับข้อมูลที่ยังไม่ทราบ" เท่านั้น เสนอ **ตัวเลือกให้ครบทุกตัวที่เหมาะกับเคสนี้** เรียงตามลำดับ [ยาหลัก] -> [ทางเลือกในกลุ่ม] -> [ผลิตภัณฑ์/ทางเลือกเสริม] พร้อมขนาดยา + [Ref: Dose, หน้า N] และทำตามบรรทัด "รูปแบบหัวข้อ 3b" (GLOBAL = กระชับยืดหยุ่น / DETAIL = ลงรายละเอียดรายตัว) -- ห้ามแนะนำกลุ่มที่อยู่ใต้ "ไม่เหมาะกับเคสนี้", เรียกชื่อหมวดตาม [รูปแบบ] ของยา (ยาพ่นคอ/ยาอม/ยากลั้วคอ) และระบุชื่อสามัญ/ตัวยาสำคัญเสมอ (ชื่อการค้าเป็นเพียงตัวอย่างผลิตภัณฑ์)
 12. ถ้ามีบรรทัด "เคสนี้เข้าข่ายแนวปฏิบัติจริงของไทย" -- ตอบตาม Guideline ก่อน แล้วต่อด้วยบล็อก **"ในทางปฏิบัติจริง (บริบทร้านยาไทย):"** (ขึ้นบรรทัดหัวข้อตัวหนาเป๊ะตามนี้ และทำตัวหนาที่ประโยคชี้ขาด) ตามหัวข้อ EXPERT OPINION ใน SYSTEM
 13. ถ้ามีบล็อก "Modified Centor (McIsaac) -- ระบบคำนวณจากข้อมูลที่ผู้ใช้ให้มาจริง" ให้ใช้คะแนนรายข้อ/คะแนนรวมจากบล็อกนั้นตรงๆ ห้ามให้คะแนนข้อที่ระบุว่า "ยังไม่ทราบ" และห้ามสมมติอาการที่ผู้ใช้ไม่ได้บอก
-14. ถ้ามีบล็อก "ผู้ใช้ตอบคำถามซักประวัติของเคสนี้แล้ว" -- ให้รวมข้อมูลเคสเดิมในแชทกับคำตอบล่าสุดเป็นเคสเดียวกัน แล้วตอบเต็ม 5 ขั้น (ประเภท 2) ห้ามถามซ้ำและห้ามตอบแบบซักประวัติล้วนอีก"""
+14. ถ้ามีบล็อก "ผู้ใช้ตอบคำถามซักประวัติของเคสนี้แล้ว" -- ให้รวมข้อมูลเคสเดิมในแชทกับคำตอบล่าสุดเป็นเคสเดียวกัน แล้วตอบเต็ม 5 ขั้น (ประเภท 2) ห้ามถามซ้ำและห้ามตอบแบบซักประวัติล้วนอีก
+15. ถ้าคำตอบมีการแนะนำยาตั้งแต่ 1 ตัวขึ้นไป -- **ต้องปิดท้ายหัวข้อ 3 ด้วยหัวข้อ "สรุปตารางขนาดยา" และตาราง markdown 4 คอลัมน์: | ยา | ขนาดตาม Guideline | ระยะเวลา | หมายเหตุ |** ครบทุกตัวที่แนะนำจริง (หมายเหตุ = ประเด็นจาก Expert Opinion/ข้อควรระวังของเคสนี้ ไม่มีใส่ "-")"""
 
 # ─── Initialize ──────────────────────────────────────────────────────────────
 
@@ -2265,11 +2278,6 @@ def _sanitize_citations(answer: str, dose_pages: list[str] | None = None, lookba
             drop_dose = (not _sg.dose_drug_hits(seg)
                          and bool(_re.search(r"น้ำเกลือ|saline|\bNSS\b", seg, _re.IGNORECASE)))
         # แยก merge: ';' หรือ 'Ref:' ซ้อน
-<<<<<<< Updated upstream
-        subparts = _re.split(r";|(?:^|\s)Ref:\s*", inner)
-        outs = [r for r in (_canon_one_ref(sp, dose_pages) for sp in subparts) if r]
-        return " ".join(outs) if outs else m.group(0)
-=======
         subparts = [sp for sp in _re.split(r";|(?:^|\s)Ref:\s*", inner) if sp.strip()]
         if drop_dose:
             subparts = [sp for sp in subparts if not ("dose" in sp.lower() or "ขนาดยา" in sp)]
@@ -2283,7 +2291,6 @@ def _sanitize_citations(answer: str, dose_pages: list[str] | None = None, lookba
         if results:
             return ""
         return m.group(0)
->>>>>>> Stashed changes
 
     return _REF_FULL_RE.sub(_repl, answer)
 
@@ -2300,17 +2307,37 @@ def _dose_pages_in_context(chunks: list[dict]) -> list[str]:
     return pages
 
 
-def _postprocess_answer(text: str, dose_pages: list[str] | None = None, lookback: str = "") -> str:
+def _postprocess_answer(text: str, dose_pages: list[str] | None = None, lookback: str = "",
+                        dual_map: dict | None = None) -> str:
     """citation normalize + brand gateway (ชื่อการค้าต้องมีตัวยาสำคัญกำกับ) + ชื่อหมวดยาตามรูปแบบ (ยาพ่นคอ/ยาอม/ยากลั้วคอ)"""
     if not text:
         return text
     prefix = lookback[lookback.rfind("\n") + 1:] if lookback else ""
     out = _sg.apply_brand_gateway(_sanitize_citations(text, dose_pages, lookback), line_prefix=prefix)
     try:
-        return _sg.fix_form_labels(out)
+        out = _sg.fix_form_labels(out)
     except Exception as e:  # noqa: BLE001
         print(f"[RAG] form-label fix skipped: {e}")
+    # เคสเด็ก: ขนาดยาปฏิชีวนะที่มีทั้งใน URI เด็ก 2562 และ AAFP -> เติม [Ref] ของอีกเล่มให้กดได้ทั้งคู่
+    try:
+        return _sg.dual_guideline_refs(out, dual_map) if dual_map else out
+    except Exception as e:  # noqa: BLE001
+        print(f"[RAG] dual-guideline ref fix skipped: {e}")
         return out
+
+
+def _post_ask_question(gate: dict, question: str) -> str:
+    """เทิร์นที่ผู้ใช้ตอบคำถามซักประวัติ: ใส่ 'ข้อความเคสเดิม + คำตอบล่าสุด' ลงในคำถามปัจจุบันให้ครบ
+    (ถ้าส่งเฉพาะคำตอบสั้นๆ โมเดลอ่านเคสเดิมจากประวัติแชทแล้วทำรายละเอียดหล่น เช่น 'เคยได้ amoxicillin เดือนก่อน'
+    ซึ่งเป็นตัวเปลี่ยนยาตัวแรก)"""
+    if (gate or {}).get("mode") != "post_ask":
+        return question
+    pending = (gate.get("case_text") or "").rsplit(question, 1)[0].strip() if question else ""
+    if not pending:
+        return question
+    return ("[ข้อมูลเคสเดิมในแชท] " + pending
+            + chr(10) + "[ข้อมูลเพิ่มเติมที่เภสัชกรเพิ่งตอบ] " + question
+            + chr(10) + "-> เป็นผู้ป่วยรายเดียวกัน ให้รวมข้อมูลทั้งสองส่วนแล้วตอบเต็ม (ห้ามทำข้อมูลเดิมหล่น)")
 
 
 def _post_ask_retrieval(gate: dict, retrieval_query: str, group_override: str | None) -> tuple[str, str | None]:
@@ -2319,6 +2346,35 @@ def _post_ask_retrieval(gate: dict, retrieval_query: str, group_override: str | 
         return retrieval_query, group_override
     grp = (gate.get("feat") or {}).get("group")
     return gate["case_text"], grp if grp in ("adult", "pediatric") else group_override
+
+
+def _dual_guideline_map(chunks: list[dict], feat: dict | None) -> dict | None:
+    """เคสเด็ก: ทำแผนที่ 'ยาปฏิชีวนะ -> หน้าของแต่ละเล่มใน Context' ไว้เติม [Ref] ของอีกเล่ม
+    (URI เด็ก 2562 เป็นคู่มือเด็ก -> ใช้เฉพาะเคสเด็กเท่านั้น)"""
+    if (feat or {}).get("group") != "pediatric":
+        return None
+    try:
+        return _sg.guideline_pages_by_drug(chunks) or None
+    except Exception as e:  # noqa: BLE001
+        print(f"[RAG] dual-guideline map skipped: {e}")
+        return None
+
+
+def _with_dual_guideline_note(clinical_notes: str, dual_map: dict | None) -> str:
+    """บันทึกให้ LLM รู้ว่า 'ยาตัวไหนมีขนาดอยู่ครบทั้งสองเล่มใน Context' -> ต้องอ้าง [Ref] ทั้งคู่ในบรรทัดเดียวกัน"""
+    both = {k: v for k, v in (dual_map or {}).items() if len(v) >= 2}
+    if not both:
+        return clinical_notes
+    items = ", ".join(
+        f"{name} (URI เด็ก 2562 หน้า {pages['URI']} + AAFP หน้า {pages['AAFP']})"
+        for name, pages in sorted(both.items()) if "URI" in pages and "AAFP" in pages
+    )
+    if not items:
+        return clinical_notes
+    note = ("**ยาปฏิชีวนะที่ Context มีขนาดยาอยู่ครบทั้งสองเล่ม (เคสเด็ก):** " + items
+            + chr(10) + "- บรรทัดที่ระบุขนาดยาเหล่านี้ **ต้องอ้าง [Ref] ทั้งสองเล่มต่อท้ายบรรทัดเดียวกัน** "
+              "(เช่น `[Ref: URI เด็ก 2562, หน้า X] [Ref: AAFP, หน้า 6]`) ห้ามเลือกอ้างเล่มเดียว")
+    return (clinical_notes + chr(10) * 2 + note) if clinical_notes else note
 
 
 def _relabel_dose_sources(sources: list[dict], answer: str) -> None:
@@ -2337,7 +2393,8 @@ def _relabel_dose_sources(sources: list[dict], answer: str) -> None:
 
 
 def _stream_flush(
-    pending: str, final: bool, dose_pages: list[str] | None = None, lookback: str = ""
+    pending: str, final: bool, dose_pages: list[str] | None = None, lookback: str = "",
+    dual_map: dict | None = None
 ) -> tuple[str, str]:
     """
     ใช้ตอน streaming: normalize citation ก่อนส่งให้ผู้ใช้เห็น (frontend เรนเดอร์ข้อความสตรีมสดๆ
@@ -2346,14 +2403,15 @@ def _stream_flush(
     คืน (emit, remaining): emit = ส่วนที่ปลอดภัยและ sanitize แล้ว, remaining = กันไว้ต่อ chunk ถัดไป
     """
     if final:
-        return _postprocess_answer(pending, dose_pages, lookback), ""
+        return _postprocess_answer(pending, dose_pages, lookback, dual_map), ""
     cut = len(pending)
     open_idx = pending.rfind("[")
     close_idx = pending.rfind("]")
     if open_idx > close_idx:          # มี '[' ที่ยังไม่ปิด -> กันตั้งแต่ตำแหน่งนั้นไว้ก่อน
         cut = open_idx
     nl = pending.rfind("\n", 0, cut)
-    if _sg.mentions_brand(pending[nl + 1:cut]):
+    # ชื่อการค้า -> brand gateway ต้องเห็นทั้งบรรทัด; ชื่อยาปฏิชีวนะ -> ต้องเห็นทั้งบรรทัดก่อนเติม [Ref] ของอีกเล่ม
+    if _sg.mentions_brand(pending[nl + 1:cut]) or (dual_map and _sg.mentions_antibiotic(pending[nl + 1:cut])):
         cut = nl + 1
     # หัวข้อหมวดยาเฉพาะที่คอ (ยาพ่นคอ/ยาอม/ยากลั้วคอ) ต้องเห็นรายการยาใต้หัวข้อทั้งบล็อกก่อน จึงตรวจชื่อหมวดได้
     try:
@@ -2362,7 +2420,7 @@ def _stream_flush(
             cut = open_label
     except Exception as e:  # noqa: BLE001
         print(f"[RAG] form-label stream guard skipped: {e}")
-    return _postprocess_answer(pending[:cut], dose_pages, lookback), pending[cut:]
+    return _postprocess_answer(pending[:cut], dose_pages, lookback, dual_map), pending[cut:]
 
 
 def _guideline_sources(chunks: list[dict], weak_context: bool) -> tuple[list[dict], set]:
@@ -2795,6 +2853,14 @@ def _pending_ask_case(history: list[dict] | None) -> str | None:
     return None
 
 
+def _has_open_case(history: list[dict] | None) -> bool:
+    """ในแชทนี้มี "เคสที่เปิดค้างอยู่" แล้วหรือยัง (ผู้ใช้เคยบรรยายเคสมาก่อน) -- ใช้แยกคำถามต่อเนื่องออกจากเคสใหม่"""
+    for m in history or []:
+        if m.get("role") == "user" and _sg.is_case_description(m.get("content") or ""):
+            return True
+    return False
+
+
 def history_gate(question: str, history: list[dict] | None) -> dict:
     """ตัดสินโหมดของเทิร์นนี้ -- ปลอดภัยเสมอ (error -> normal)
       ask      = เคสใหม่ที่ข้อมูลไม่ครบตาม pattern ซักประวัติ -> ตอบด้วยการซักประวัติก่อน ยังไม่สรุปการรักษา
@@ -2807,17 +2873,28 @@ def history_gate(question: str, history: list[dict] | None) -> dict:
         pending = _pending_ask_case(history)
         if pending is not None and not _NEW_CASE_RE.search(text):
             q_feat = _sg.extract_case_features(text)
-            p_age = _sg.parse_age_years(pending)
-            # เคสใหม่จริง (คนละอายุ) ที่พิมพ์ต่อท้ายโดยไม่บอกว่าเป็นเคสใหม่ -> ไม่ใช่การตอบคำถามซักประวัติ
-            new_patient = (_sg.is_case_description(text, q_feat) and q_feat.get("age") is not None
-                           and p_age is not None and abs(q_feat["age"] - p_age) > 0.01)
-            if not new_patient:
-                merged = pending.strip() + "\n" + text
-                feat = _sg.extract_case_features(merged)
-                return {"mode": "post_ask", "case_text": merged, "feat": feat,
-                        "chk": _sg.history_checklist(merged, feat)}
+            merged = pending.strip() + chr(10) + text
+            feat = _sg.extract_case_features(merged)
+            merged_chk = _sg.history_checklist(merged, feat)
+            # ข้อความนี้คือ "คำตอบของคำถามที่เพิ่งถามไป" หรือ "เคสใหม่ที่พิมพ์ต่อท้าย"?
+            # ตัดสินจากสิ่งที่วัดได้จริง: ข้อความนี้ปิดช่องว่างที่ระบบถามไปได้กี่ข้อ
+            # (เกณฑ์เดิมดูแค่ "อายุต่างกัน" -> เคสใหม่ที่ไม่บอกอายุถูกกลืนเป็นคำตอบ แล้วตอบเต็มทั้งที่ข้อมูลไม่ครบ)
+            p_feat = _sg.extract_case_features(pending)
+            p_chk = _sg.history_checklist(pending, p_feat)
+            asked = {m["key"] for m in (p_chk or {}).get("missing", [])}
+            still = {m["key"] for m in (merged_chk or {}).get("missing", [])}
+            resolved = asked - still
+            own_case = _sg.is_case_description(text, q_feat)
+            answers_questions = len(resolved) >= 2 or (resolved and not own_case)
+            if answers_questions or not own_case:
+                return {"mode": "post_ask", "case_text": merged, "feat": feat, "chk": merged_chk}
+            # ไม่ได้ตอบคำถามที่ถามไปเลย + เป็นคำบรรยายเคสของตัวเอง = ผู้ป่วยรายใหม่ -> ตกไปเข้า gate ตามปกติ
         feat = _sg.extract_case_features(text)
         chk = _sg.history_checklist(text, feat)
+        # ข้อความสั้นแบบ "มีอาการ + ขอยา" (ไม่เข้าเกณฑ์คำบรรยายเคส) -> ยังต้องซักประวัติก่อน
+        # แต่เฉพาะตอนที่ยังไม่มีเคสเปิดอยู่ในแชท ไม่งั้นคำถามต่อเนื่อง ("ขอยาแก้ไอด้วย") จะถูกถามซ้ำ
+        if chk is None and _sg.is_bare_care_request(text, feat) and not _has_open_case(history):
+            chk = _sg.history_checklist(text, feat, force=True)
         if _sg.should_ask_first(text, chk):
             return {"mode": "ask", "case_text": text, "chk": chk, "feat": feat}
         out.update({"feat": feat, "chk": chk})
@@ -2856,6 +2933,14 @@ def ask_first_answer(question: str, gate: dict) -> dict:
     except Exception as e:  # noqa: BLE001
         print(f"[RAG] ask-first reply failed: {e}")
         answer = ""
+    if not answer:
+        # fallback แบบ deterministic -- ต้องไม่ตกไปตอบเต็มทั้งที่ข้อมูลยังไม่ครบ (ตัดจบก่อนสรุปเสมอ)
+        asks = [f"- {m['q']} -- เหตุผล: {m['why']}" for m in (gate.get("chk") or {}).get("missing", [])]
+        if asks:
+            answer = (chr(10)).join(
+                ["ในเคสนี้ถือเป็น **เคสผู้ป่วยใหม่ (ประเภท 2) และ ข้อมูลไม่ครบ (ประเภท 4)** "
+                 "ขอซักประวัติเพิ่มเติมก่อนสรุปการรักษาครับ", "",
+                 f"**{_sg.ASK_HEADING}:**"] + asks)
     return {"answer": answer, "sources": [], "chunks_used": 0, "intent": "ask_history"}
 
 
@@ -2905,6 +2990,9 @@ def build_clinical_support(
                     and feat.get("fever") is None and not feat.get("pain")):
                 notes.append("**ยาบรรเทาอาการที่ต้องมีในหัวข้อ 3b:** ใส่ **Paracetamol** เป็นยาใช้เมื่อมีอาการ (as needed) "
                              "สำหรับไข้ต่ำ/ปวดศีรษะ/ปวดเมื่อยที่พบบ่อยในหวัด พร้อมขนาดยาและ [Ref: Dose, หน้า N]")
+            prior_atb = _sg.prior_antibiotic_note(case_text, feat)
+            if prior_atb:
+                notes.append(prior_atb)
             if flags:
                 notes.append("**เคสนี้เข้าข่ายแนวปฏิบัติจริงของไทย (Expert Opinion) -- ตอบตาม Guideline ก่อน แล้วต่อด้วยบล็อก "
                              "\"ในทางปฏิบัติจริง (บริบทร้านยาไทย)\":**\n" + "\n".join(f"- {x}" for x in flags))
@@ -2995,6 +3083,9 @@ def generate_answer(
         question, history, weak_context, gate)
     if sym_plan:
         chunks = _sg.gate_dose_chunks(chunks, sym_plan, sym_feat)
+    # เคสเด็ก: ยาปฏิชีวนะตัวเดียวกันที่มีอยู่ทั้งใน URI เด็ก 2562 และ AAFP -> ต้องอ้างทั้งสองเล่ม
+    dual_map = _dual_guideline_map(chunks, sym_feat)
+    clinical_notes = _with_dual_guideline_note(clinical_notes, dual_map)
     context      = build_context(chunks, weak_context=weak_context)
     if catalog:
         context += "\n\n" + "=" * 60 + "\n\n" + catalog
@@ -3002,7 +3093,7 @@ def generate_answer(
     gemini_history = _build_gemini_history(history)
 
     user_message = USER_MESSAGE_TEMPLATE.format(
-        question       = question,
+        question       = _post_ask_question(gate, question),
         anchor_note    = anchor_note,
         clinical_notes = _format_clinical_notes(clinical_notes),
         context        = context,
@@ -3022,7 +3113,7 @@ def generate_answer(
         else:
             answer = f"[ระบบ] เกิดข้อผิดพลาดในการสร้างคำตอบ: {err_str}"
 
-    answer = _postprocess_answer(answer, dose_pages)
+    answer = _postprocess_answer(answer, dose_pages, dual_map=dual_map)
     sources, seen = _guideline_sources(chunks, weak_context)
     _append_external_refs(sources, seen, answer)
     _append_dose_sources(sources, seen, answer)
@@ -3088,6 +3179,9 @@ async def generate_answer_stream(
         question, history, weak_context, gate)
     if sym_plan:
         chunks = _sg.gate_dose_chunks(chunks, sym_plan, sym_feat)
+    # เคสเด็ก: ยาปฏิชีวนะตัวเดียวกันที่มีอยู่ทั้งใน URI เด็ก 2562 และ AAFP -> ต้องอ้างทั้งสองเล่ม
+    dual_map = _dual_guideline_map(chunks, sym_feat)
+    clinical_notes = _with_dual_guideline_note(clinical_notes, dual_map)
     context      = build_context(chunks, weak_context=weak_context)
     if catalog:
         context += "\n\n" + "=" * 60 + "\n\n" + catalog
@@ -3095,7 +3189,7 @@ async def generate_answer_stream(
     gemini_history = _build_gemini_history(history)
 
     user_message = USER_MESSAGE_TEMPLATE.format(
-        question       = question,
+        question       = _post_ask_question(gate, question),
         anchor_note    = anchor_note,
         clinical_notes = _format_clinical_notes(clinical_notes),
         context        = context,
@@ -3121,7 +3215,7 @@ async def generate_answer_stream(
                 # normalize citation \u0e23\u0e30\u0e2b\u0e27\u0e48\u0e32\u0e07\u0e2a\u0e15\u0e23\u0e35\u0e21 (frontend \u0e40\u0e23\u0e19\u0e40\u0e14\u0e2d\u0e23\u0e4c\u0e02\u0e49\u0e2d\u0e04\u0e27\u0e32\u0e21\u0e2a\u0e14\u0e46)
                 pending += chunk.text
                 emit, pending = _stream_flush(pending, final=False, dose_pages=dose_pages,
-                                              lookback=shown[-400:])
+                                              lookback=shown[-400:], dual_map=dual_map)
                 if emit:
                     shown += emit
                     yield json.dumps({"type": "chunk", "content": emit}) + "\n"
@@ -3132,7 +3226,8 @@ async def generate_answer_stream(
                 completion_tokens = chunk.usage_metadata.candidates_token_count
 
         # flush \u0e2a\u0e48\u0e27\u0e19\u0e17\u0e35\u0e48\u0e01\u0e31\u0e19\u0e44\u0e27\u0e49 (\u0e40\u0e0a\u0e48\u0e19 [Ref: ...] \u0e01\u0e49\u0e2d\u0e19\u0e2a\u0e38\u0e14\u0e17\u0e49\u0e32\u0e22)
-        emit, pending = _stream_flush(pending, final=True, dose_pages=dose_pages, lookback=shown[-400:])
+        emit, pending = _stream_flush(pending, final=True, dose_pages=dose_pages, lookback=shown[-400:],
+                                      dual_map=dual_map)
         if emit:
             shown += emit
             yield json.dumps({"type": "chunk", "content": emit}) + "\n"
@@ -3144,7 +3239,7 @@ async def generate_answer_stream(
 
         # normalize citations \u0e17\u0e31\u0e49\u0e07\u0e01\u0e49\u0e2d\u0e19 \u0e41\u0e25\u0e49\u0e27\u0e04\u0e48\u0e2d\u0e22\u0e14\u0e36\u0e07\u0e2d\u0e49\u0e32\u0e07\u0e2d\u0e34\u0e07\u0e20\u0e32\u0e22\u0e19\u0e2d\u0e01 (URL) \u0e08\u0e32\u0e01\u0e02\u0e49\u0e2d\u0e04\u0e27\u0e32\u0e21\u0e04\u0e33\u0e15\u0e2d\u0e1a
         # full_answer = ข้อความที่ผู้ใช้เห็นจริง (บันทึกลงประวัติให้ตรงกับที่สตรีมออกไป)
-        full_answer = shown if shown else _postprocess_answer(full_answer, dose_pages)
+        full_answer = shown if shown else _postprocess_answer(full_answer, dose_pages, dual_map=dual_map)
         _append_external_refs(sources, seen, full_answer)
         _append_dose_sources(sources, seen, full_answer)
         _relabel_dose_sources(sources, full_answer)

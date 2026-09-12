@@ -46,6 +46,10 @@ def _display_name(name: str) -> str:
     if re.match(r"^[฀-๿]", name):
         return " ".join(name.split()[:2])
     if "(" in name and ")" in name:
+        # แถวเดียวที่รวมหลายสูตร (เช่น "Strepsils chesty cough (Ambroxol) / Strepsils dry cough (Dextromethorphan)")
+        # ต้องคงชื่อเต็ม ไม่งั้นเคสไอแห้งจะได้ชื่อสูตรละลายเสมหะไปแทน
+        if name.count("(") > 1:
+            return name.strip()
         return name[: name.index(")") + 1].strip()
     return name.strip()
 
@@ -76,71 +80,137 @@ def _name_keys(name: str) -> list[str]:
 
 
 def _min_age(drug: dict) -> float | None:
-    """อายุขั้นต่ำที่ตาราง Dose ระบุ (เช่น 'เด็กอายุ 6 ปีขึ้นไป', 'children >12 yr', 'ห้ามใช้เด็กอายุต่ำกว่า 1 ปี')"""
+    """อายุขั้นต่ำที่ตาราง Dose ระบุ -- ตารางใหม่เขียนได้หลายแบบ (ไทย/อังกฤษ/ช่วงอายุ)
+    เช่น 'อายุตั้งแต่ 3 ปีขึ้นไป', 'เด็กอายุ 6-12 ปี', 'Children 2-12 years', 'Children 2 to <6 years',
+    'children over 12 years' -> ใช้ "อายุต่ำสุดที่ตารางระบุว่าใช้ได้" (ไม่ใช่ช่วงอายุที่มากที่สุด
+    ไม่งั้นเด็กจะถูกตัดตัวเลือกที่ใช้ได้จริงทิ้ง) และเคารพข้อห้ามตามอายุเป็นพื้นขั้นต่ำเสมอ"""
     dose_txt = _nz(drug.get("ped") or drug.get("adult"))
     warn_txt = _nz(drug.get("warn"))
-    found = [float(x) for x in re.findall(r"อายุ(?:ตั้งแต่)?(\d+)ปีขึ้นไป", dose_txt)]
-    found += [float(x) for x in re.findall(r"children(?:over|>)(\d+)(?:yr|years?)", dose_txt)]
+    found: list[float] = []
+    for pat in (r"อายุ(?:ตั้งแต่)?(\d+)ปีขึ้นไป", r"เด็กอายุ(\d+)-\d+ปี",
+                r"children(?:aged)?(\d+)(?:to|-|–|—)", r"children(?:over|>|≥)(\d+)(?:yr|years?)",
+                r"(\d+)(?:yearsofageandolder|ปีขึ้นไป)"):
+        found += [float(x) for x in re.findall(pat, dose_txt)]
+    neg = [float(x) for x in re.findall(
+        r"(?:ไม่ควรใช้|ห้ามใช้|ไม่แนะนำให้ใช้)(?:ใน|กับ)?เด็กอายุต่ำกว่า(\d+)", warn_txt + dose_txt)]
+    floor = max(neg) if neg else None
     if found:
-        return min(found)
-    neg = re.findall(r"(?:ไม่ควรใช้|ห้ามใช้|ไม่แนะนำให้ใช้)(?:ใน|กับ)?เด็กอายุต่ำกว่า(\d+)", warn_txt + dose_txt)
-    return float(max(neg, key=float)) if neg else None
+        low = min(found)
+        return max(low, floor) if floor is not None else low
+    return floor
 
+
+# ยาพ่นจมูกสเตียรอยด์ -- ตารางใหม่เขียนข้อบ่งใช้เป็น "allergic rhinitis" เหมือนยาแก้แพ้
+# จึงต้องแยกด้วยชื่อตัวยา (ความรู้ระดับกลุ่มยา ไม่ใช่การ hard-code รายเคส)
+_INCS_NAMES = ("mometasone", "fluticasone", "budesonide", "triamcinolone", "beclomet", "ciclesonide")
+_CONGESTION_KEYS = ("nasal congestion", "nasal and nasopharyngeal", "sinus congestion", "decongestant")
+_RHINITIS_KEYS = ("allergic rhinitis", "hay fever", "runny nose", "rhinorrhea", "sneezing",
+                  "upper respiratory allergies", "nasal allergies", "antihistamine", "vasomotor rhinitis")
+_FEVER_PAIN_KEYS = ("fever", "antipyretic", "analgesic", "pain")
+_DRY_COUGH_KEYS = ("cough (suppressant)", "cough suppressant", "antitussive")
+_WET_COUGH_KEYS = ("mucolytic", "expectorant", "viscid", "viscous mucous", "viscous mucus",
+                   "abnormal mucous", "abnormal, viscid", "mucous secretion", "mucus secretion")
+_THROAT_KEYS = ("sore throat", "throat", "oral mucosa")
+
+
+# ชั้นสำรอง: ถ้ากฎจากข้อบ่งใช้จัดกลุ่มไม่ได้ (ตาราง ingest ใหม่เขียนข้อบ่งใช้เฉพาะโรคหลักของยา เช่น
+# Piroxicam = arthritis, Hydroxyzine = pruritus) ให้จัดกลุ่มจาก "ชื่อตัวยา" ตามความรู้ระดับกลุ่มยา
+# -> ยาทุกตัวในตารางถูกนำมาใช้ได้ ไม่ตกหล่น (แต่ตัวที่ไม่ใช่ตัวเลือกทั่วไปของ URI ยังอยู่ท้ายสุดตาม tier)
+_NAME_CLASS_FALLBACK: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("paracetamol", "acetaminophen", "ibuprofen", "naproxen", "diclofenac", "mefenamic",
+      "piroxicam", "celecoxib", "etoricoxib", "aspirin"), "fever_pain"),
+    (("chlorpheniramine", "brompheniramine", "diphenhydramine", "cyproheptadine", "hydroxyzine",
+      "cetirizine", "loratadine", "fexofenadine", "levocetirizine", "desloratadine", "bilastine"), "antihistamine"),
+    (("oxymetazoline", "xylometazoline", "naphazoline", "pseudoephedrine", "phenylephrine"), "decongestant"),
+    (("dextromethorphan", "levodropropizine"), "cough_dry"),
+    (("carbocysteine", "acetylcysteine", "bromhexine", "ambroxol", "guaifenesin"), "cough_wet"),
+)
+# รูปแบบยาในแถวนั้นไม่ตรงกับการใช้ในกลุ่มนี้ (เช่น Naphazoline แถวใหม่เป็นยาหยอดตา ไม่ใช่ชนิดพ่นจมูก)
+_ROUTE_MISMATCH: tuple[tuple[str, str, str], ...] = (
+    ("decongestant", "ophthalmic", "เป็นยาแก้คัดจมูกชนิดเดี่ยวที่ใช้ได้ในทางปฏิบัติ แต่แถวในตาราง Dose ฉบับปัจจุบันเป็นข้อมูลของรูปแบบยาหยอดตา (ophthalmic) จึงไม่มีขนาดยาสำหรับพ่น/หยดจมูกให้อ้างอิง -- ถ้าจะใช้ ต้องตรวจขนาดจากฉลากผลิตภัณฑ์ชนิดพ่นจมูก (ห้ามใช้ขนาดยาหยอดตา)"),
+)
+
+
+def _fallback_class(d: dict) -> tuple[set[str], str]:
+    """(คลาสสำรองจากชื่อตัวยา, เหตุผลที่ห้ามแนะนำถ้ารูปแบบยาไม่ตรง)"""
+    name = d["name"].lower()
+    dose_txt = ((d.get("adult") or "") + " " + (d.get("ped") or "")).lower()
+    for keys, cls in _NAME_CLASS_FALLBACK:
+        if any(k in name for k in keys):
+            for want_cls, bad_route, why in _ROUTE_MISMATCH:
+                if cls == want_cls and bad_route in dose_txt and "nasal" not in dose_txt:
+                    return {cls}, why
+            return {cls}, ""
+    return set(), ""
 
 def _classify(d: dict) -> dict:
-    ind = _nz(d["indication"])
-    low = d["name"].lower()
-    not_rhino = "ไม่ค่อยใช้ลดน้ำมูก" in ind
-    has_ah = ("antihistamine" in ind or "ลดน้ำมูก" in ind) and not not_rhino
-    has_dc = "decongestant" in ind or "แก้คัดจมูก" in ind
-    has_ap = any(k in ind for k in ("antipyretic", "analgesic", "ลดไข้", "แก้ปวด"))
-    throat = any(k in ind for k in ("เจ็บคอ", "ระคายเคืองคอ", "เสียงแหบ"))
+    """จัดกลุ่มยาจาก 'ข้อบ่งใช้ในตาราง' (ตารางใหม่เป็น monograph อังกฤษ + ข้อความไทยของผลิตภัณฑ์)"""
+    raw = " ".join((d["indication"] or "").split()).lower()   # คงช่องว่างไว้สำหรับคีย์ภาษาอังกฤษ
+    ind = _nz(d["indication"])                                 # ตัดช่องว่าง สำหรับคีย์ภาษาไทย
+    name = d["name"].lower()
+    has_en = lambda keys: any(k in raw for k in keys)          # noqa: E731
+    has_th = lambda keys: any(k in ind for k in keys)          # noqa: E731
+
+    congestion = has_en(_CONGESTION_KEYS) or has_th(("คัดจมูก",))
+    rhinitis = has_en(_RHINITIS_KEYS) or has_th(("ลดน้ำมูก", "น้ำมูกไหล", "แก้แพ้"))
+    febrile = has_en(_FEVER_PAIN_KEYS) or has_th(("ลดไข้", "แก้ปวด", "เป็นไข้", "ปวดศีรษะ"))
+    dry_cough = has_en(_DRY_COUGH_KEYS) or has_th(("ไอแห้ง", "ไม่มีเสมหะ")) or "dextromethorphan" in name
+    wet_cough = has_en(_WET_COUGH_KEYS) or has_th(("ขับเสมหะ", "ละลายเสมหะ", "มีเสมหะ"))
+    throat = has_en(_THROAT_KEYS) or has_th(("เจ็บคอ", "ระคายคอ", "ลำคอ", "คออักเสบ", "ช่องปาก"))
+    is_spray = "spray" in name or has_th(("สเปรย์", "พ่น"))
+    is_lozenge = "lozenge" in name or "strepsils" in name or has_th(("ยาอม",))
+    is_gargle = "gargle" in name or has_th(("กลั้วคอ", "บ้วนปาก"))
+
     cls: set[str] = set()
-    if has_ap and has_ah and has_dc:
-        cls.add("combo_flu")
-    elif has_ah and has_dc:
-        cls.add("combo_cold")
-    elif has_ap:
-        cls.add("fever_pain")
-    elif has_ah:
-        cls.add("antihistamine")
-    elif has_dc:
-        cls.add("decongestant")
-    if "corticoster" in ind:
+    if any(n in name for n in _INCS_NAMES):
         cls.add("incs")
-    if "ไอแห้ง" in ind or "ไม่มีเสมหะ" in ind:
+    elif congestion and rhinitis:
+        cls.add("combo_flu" if (febrile and has_th(("ไข้",)) or "fever" in raw) else "combo_cold")
+    elif congestion:
+        cls.add("decongestant")
+    elif rhinitis:
+        cls.add("antihistamine")
+    elif febrile:
+        cls.add("fever_pain")
+    if dry_cough:
         cls.add("cough_dry")
-    if re.search(r"(?<!ไม่)มีเสมหะ|ขับเสมหะ|ละลายเสมหะ", ind):
+    if wet_cough:
         cls.add("cough_wet")
-    if "ยาพ่น" in ind and throat:
+    if throat and is_spray:
         cls.add("throat_spray")
-    if "ยาอม" in ind and throat:
+    if throat and is_lozenge:
         cls.add("throat_lozenge")
-    if "กลั้วคอ" in ind:
+    if is_gargle:
         cls.add("gargle")
-    # รูปแบบยาเฉพาะที่คอ (ใช้เรียกหมวดให้ถูก: ยาพ่นคอ / ยาอม / ยากลั้วคอ)
+
+    route_note = ""
+    if not cls:
+        cls, route_note = _fallback_class(d)
+
     form = None
     if "throat_spray" in cls:
         form = "spray"
-    elif "throat_lozenge" in cls or ind.startswith("ยาอม"):
+    elif "throat_lozenge" in cls:
         form = "lozenge"
     elif "gargle" in cls:
         form = "gargle"
     return {
         "classes": cls,
-        "first_gen": "+" not in d["name"] and any(k in low for k in _FIRST_GEN_AH),
+        "first_gen": "+" not in d["name"] and any(k in name for k in _FIRST_GEN_AH),
         "herbal": bool(re.match(r"^[฀-๿]", d["name"])),
-        "nsaid": "fever_pain" in cls and "paracetamol" not in low,
+        "nsaid": "fever_pain" in cls and "paracetamol" not in name,
         "product": bool(re.search(r"\([^)]*(?:มีตัวยา|\d)", d["name"])) or bool(_PRODUCT_RE.match(d["name"])),
-        "rare_uri": any(k in low for k in _RARE_URI),
+        "rare_uri": any(k in name for k in _RARE_URI),
         "form": form,
+        "route_note": route_note,
     }
 
 
 # ผลิตภัณฑ์ (ชื่อการค้า/สูตรผสม) -- จัดเป็น "ผลิตภัณฑ์ทางเลือก" ต่อจากยาหลักชื่อสามัญ (กันเชิงโฆษณา + ยาหลักขึ้นก่อน)
 _PRODUCT_RE = re.compile(r"^(?:Solmax|Muclear|Strepsils|Terco|Decolgen|Difflam|Kamill?osan|Propoliz|Betadine)", re.IGNORECASE)
 # มีในตาราง Dose แต่ไม่ใช่ตัวเลือกทั่วไปสำหรับอาการ URI (แสดงเฉพาะเมื่อผู้ใช้ขอดูทั้งหมด) -- ความรู้ระดับกลุ่มยา
-_RARE_URI = ("aspirin", "piroxicam", "celecoxib", "etoricoxib", "diphenhydramine", "cyproheptadine")
+_RARE_URI = ("aspirin", "piroxicam", "celecoxib", "etoricoxib", "diphenhydramine", "cyproheptadine",
+             "hydroxyzine")
 FORM_LABELS = {"spray": "ยาพ่นคอ", "lozenge": "ยาอม", "gargle": "ยากลั้วคอ"}
 
 
@@ -190,6 +260,12 @@ def load_formulary() -> list[dict]:
         d["keys"] = _name_keys(n)
         d["min_age"] = _min_age(d)
         out.append(d)
+    # กันเงียบ: ถ้าตาราง Dose ถูก ingest ใหม่แล้วเขียนข้อบ่งใช้คนละแบบ กฎจัดกลุ่มอาจใช้ไม่ได้
+    # -> DOSE CATALOG จะว่างโดยไม่มีใครรู้ จึงเตือนใน log ให้ไปตรวจกฎใน _classify()
+    unclassified = [d["display"] for d in out if not d["classes"]]
+    if out and len(unclassified) > len(out) * 0.4:
+        print(f"[SYMPT] เตือน: จัดกลุ่มยาไม่ได้ {len(unclassified)}/{len(out)} ตัว "
+              f"(ตาราง Dose อาจเปลี่ยนรูปแบบ) เช่น {unclassified[:5]}")
     _FORMULARY = out
     return out
 
@@ -525,7 +601,9 @@ def _drug_line(d: dict, cls: str, f: dict, *, full: bool) -> str:
 
 
 def _eligible(d: dict, f: dict) -> tuple[bool, str]:
-    """ตรวจอายุ/ขนาดเด็กจากตารางเอง (data-driven)"""
+    """ตรวจอายุ/ขนาดเด็ก/รูปแบบยา จากตารางเอง (data-driven)"""
+    if d.get("route_note"):
+        return False, d["route_note"]
     age = f.get("age")
     if f.get("group") == "pediatric":
         if "aspirin" in d["name"].lower():
@@ -648,7 +726,7 @@ def build_catalog(f: dict, plan: dict[str, tuple[str, str]], *, full: bool = Fal
             lines.append("  (มีในตารางแต่ไม่ใช่ตัวเลือกทั่วไปสำหรับอาการ URI -- ไม่ต้องแนะนำ เว้นแต่ผู้ใช้ขอดูทั้งหมด: "
                          + ", ".join(rare) + ")")
         if not_ok:
-            lines.append("  (ไม่เหมาะกับอายุ/กลุ่มผู้ป่วยนี้: " + "; ".join(not_ok) + ")")
+            lines.append("  (มีในตารางแต่ไม่แนะนำในเคสนี้ -- เหตุผลจากข้อมูลในตาราง: " + "; ".join(not_ok) + ")")
     if avoided:
         lines.append("\n■ ไม่เหมาะกับเคสนี้ (ห้ามแนะนำเป็นการรักษา -- ถ้าจะกล่าวถึง ให้บอกว่าไม่แนะนำเพราะอะไร):")
         lines += avoided
@@ -942,9 +1020,11 @@ _ANSWER_NOW_RE = re.compile(
     r"ตอบเลย|ไม่ต้องถาม|ไม่ต้องซัก|ข้อมูลมีเท่านี้|มีข้อมูลเท่านี้|ข้อมูลเท่าที่มี|สรุปเลย|ประเมินจากข้อมูลที่มี", re.IGNORECASE)
 
 
-def history_checklist(text: str, f: dict) -> dict | None:
-    """ตรวจข้อมูลตาม pattern ซักประวัติ -> {'missing': [{key,label,q,why}], 'dx_given', 'ped'} (None ถ้าไม่ใช่คำบรรยายเคส)"""
-    if not is_case_description(text, f):
+def history_checklist(text: str, f: dict, *, force: bool = False) -> dict | None:
+    """ตรวจข้อมูลตาม pattern ซักประวัติ -> {'missing': [{key,label,q,why}], 'dx_given', 'ped'} (None ถ้าไม่ใช่คำบรรยายเคส)
+    force=True: ใช้กับข้อความสั้นที่ 'ขอยา' พร้อมอาการ (เช่น "ไอมีเสมหะ 3 วัน ขอยาหน่อย") ซึ่งไม่ผ่านเกณฑ์
+    คำบรรยายเคส แต่เป็นการขอการรักษาจริง -> ต้องซักประวัติก่อนเหมือนกัน"""
+    if not (force or is_case_description(text, f)):
         return None
     text = text or ""
     ped = f.get("group") == "pediatric"
@@ -1014,6 +1094,18 @@ def history_checklist(text: str, f: dict) -> dict | None:
                 "เพื่อตรวจข้อห้าม/ข้อควรระวังของยา เช่น ยาแก้คัดจมูกในความดันสูง/โรคหัวใจ, NSAIDs ในโรคไต/แผลในกระเพาะ/หอบหืด"
                 + (" และความปลอดภัยของยาในหญิงตั้งครรภ์/ให้นมบุตร" if fem else ""))
     return {"missing": missing, "dx_given": bool(_DIAGNOSIS_GIVEN_RE.search(text)), "ped": ped}
+
+
+# ข้อความ "ขอยา/ขอคำแนะนำการรักษา" ที่มีอาการ URI แต่สั้นเกินกว่าจะนับเป็นคำบรรยายเคส
+# (เช่น "ไอมีเสมหะมา 3 วัน ขอยาหน่อย") -> ยังต้องซักประวัติก่อนจ่ายยา
+_CARE_REQUEST_RE = re.compile(
+    r"ขอยา|ขอคำแนะนำ|แนะนำยา|จ่ายยา|ยาอะไร|ยาตัวไหน|รักษา(?:ยังไง|อย่างไร)|ทำ(?:ยังไง|อย่างไร)|จัดการอย่างไร|ควรให้ยา",
+    re.IGNORECASE)
+
+
+def is_bare_care_request(text: str, f: dict) -> bool:
+    """มีอาการ URI + ขอการรักษา แต่ข้อความสั้นจนไม่เข้าเกณฑ์คำบรรยายเคส"""
+    return bool(has_uri_symptom(f) and _CARE_REQUEST_RE.search(text or "") and not is_case_description(text, f))
 
 
 def should_ask_first(text: str, chk: dict | None) -> bool:
@@ -1163,6 +1255,98 @@ def drugs_cited_by_page(text: str) -> dict[str, list[str]]:
     return out
 
 
+# ─── Dual-guideline references (เด็ก: URI เด็ก 2562 + AAFP มีข้อมูลเดียวกัน ต้องอ้างทั้งคู่) ─────
+# AAFP หน้า 6 (TABLE 4) มีคอลัมน์ "Children" ของ ABRS / AOM / GABHS pharyngitis ครบ
+# -> เคสเด็กที่อ้างเฉพาะ URI เด็ก 2562 (หรือเฉพาะ AAFP) ทั้งที่อีกเล่มก็มีขนาดยาตัวเดียวกันอยู่ใน Context
+#    ให้เติม [Ref] ของอีกเล่มให้ เพื่อให้เภสัชกรกดดูได้ทั้งสองแหล่ง (ตาม feedback "ให้ดึงมาทั้ง 2 แหล่ง")
+_ATB_NAMES = (
+    "amoxicillin/clavulanate", "amoxicillin", "clavulanate", "augmentin", "penicillin v", "penicillin g",
+    "penicillin", "cefdinir", "cefpodoxime", "cefixime", "cephalexin", "cefuroxime", "ceftriaxone",
+    "azithromycin", "clarithromycin", "erythromycin", "clindamycin", "doxycycline",
+)
+_GUIDELINE_LABELS = {"AAFP": "AAFP", "URI": "URI เด็ก 2562"}
+_ATB_DOSE_TOKEN_RE = re.compile(r"\d\s*(?:mg|มก|กรัม|g\b)", re.IGNORECASE)
+_LINE_REF_RE = re.compile(r"\[Ref:\s*([^\],]+?)\s*(?:,[^\]]*)?\]")
+
+
+def _atb_in(text: str) -> set[str]:
+    """ชื่อยาปฏิชีวนะที่พบในข้อความ (เก็บเฉพาะชื่อที่ยาวที่สุด เช่น 'penicillin v' ไม่นับ 'penicillin' ซ้ำ)"""
+    low = (text or "").lower()
+    found = {name for name in _ATB_NAMES if name in low}
+    return {n for n in found if not any(n != o and n in o for o in found)}
+
+
+def guideline_pages_by_drug(chunks: list[dict]) -> dict[str, dict[str, str]]:
+    """{ชื่อยาปฏิชีวนะ: {'AAFP': 'เลขหน้า', 'URI': 'เลขหน้า'}} จาก chunk ที่อยู่ใน Context จริง
+    นับเฉพาะ chunk ที่มี 'ทั้งชื่อยาและตัวเลขขนาดยา' (กันหน้าที่เอ่ยชื่อยาลอยๆ แล้วถูกอ้างผิดหน้า)"""
+    out: dict[str, dict[str, str]] = {}
+    for c in chunks or []:
+        src = c.get("source")
+        if src not in _GUIDELINE_LABELS:
+            continue
+        content = c.get("content") or ""
+        if not _ATB_DOSE_TOKEN_RE.search(content):
+            continue
+        page = str(c.get("page", "")).strip()
+        if not page.isdigit():
+            continue
+        for name in _atb_in(content):
+            out.setdefault(name, {}).setdefault(src, page)
+    return out
+
+
+def dual_guideline_refs(answer: str, drug_pages: dict[str, dict[str, str]]) -> str:
+    """เติม [Ref] ของอีกเล่มให้บรรทัดขนาดยาปฏิชีวนะที่อ้างเล่มเดียว (เฉพาะยาที่ Context มีครบทั้งสองเล่ม)
+
+    มองเป็น "บล็อก" ไม่ใช่บรรทัดเดียว เพราะโมเดลมักเขียนชื่อยาไว้บรรทัดหัวข้อ แล้วขนาดยา/บรรทัดคำนวณ
+    อยู่บรรทัดย่อยถัดไป -> ต้องจับคู่ชื่อยากับบรรทัดที่มี [Ref] ให้ถูก
+    """
+    if not answer or not drug_pages:
+        return answer
+    both = {n: p for n, p in drug_pages.items() if "URI" in p and "AAFP" in p}
+    if not both:
+        return answer
+    lines = answer.split(chr(10))
+    out: list[str] = []
+    for i, line in enumerate(lines):
+        refs = {m.group(1).strip() for m in _LINE_REF_RE.finditer(line)}
+        cited = {s for s, label in _GUIDELINE_LABELS.items() if label in refs or s in refs}
+        if len(cited) != 1:
+            out.append(line)
+            continue
+        names = _atb_in(line)
+        has_dose = bool(_ATB_DOSE_TOKEN_RE.search(line))
+        if not names:
+            # ชื่อยาอาจอยู่บรรทัดหัวข้อด้านบน (ย้อนดูไม่เกิน 2 บรรทัดที่มีเนื้อหา) -- บรรทัดนี้ต้องมีขนาดยาเอง
+            if has_dose:
+                for prev in (l for l in reversed(lines[max(0, i - 2): i]) if l.strip()):
+                    names = _atb_in(prev)
+                    if names:
+                        break
+        elif not has_dose:
+            # ชื่อยาอยู่บรรทัดนี้ แต่ขนาดยาอยู่บรรทัดถัดไป (บรรทัดคำนวณ)
+            nxt = lines[i + 1] if i + 1 < len(lines) else ""
+            has_dose = bool(_ATB_DOSE_TOKEN_RE.search(nxt))
+        if not names or not has_dose:
+            out.append(line)
+            continue
+        have = next(iter(cited))
+        missing_src = "URI" if have == "AAFP" else "AAFP"
+        page = next((both[n][missing_src] for n in names if n in both), None)
+        if not page:
+            out.append(line)
+            continue
+        add = "[Ref: " + _GUIDELINE_LABELS[missing_src] + ", หน้า " + page + "]"
+        last = line.rfind("]")
+        out.append(line[: last + 1] + " " + add + line[last + 1:])
+    return chr(10).join(out)
+
+
+def mentions_antibiotic(text: str) -> bool:
+    """(streaming) บรรทัดที่ยังไม่จบซึ่งมีชื่อยาปฏิชีวนะ ต้องรอให้จบบรรทัดก่อน จึงเติม [Ref] อีกเล่มได้"""
+    return bool(_atb_in(text or ""))
+
+
 # ─── Penicillin allergy severity (safety backstop) ───────────────────────────
 # ลมพิษ/anaphylaxis/angioedema/หายใจลำบาก = type 1 (IgE) -> ห้าม beta-lactam ทั้งหมด "รวม cephalosporin"
 # (พบโมเดลตีความ "ผื่นลมพิษ" ผิดเป็น non-type 1 แล้วแนะนำ Cephalexin) -> ระบบตรวจแบบ deterministic แล้วแนบบันทึกให้ชัด
@@ -1191,6 +1375,23 @@ def allergy_note(text: str) -> str:
     return ""
 
 
+# เด็กที่เพิ่งได้ amoxicillin มาภายใน 30 วัน -> ตาม AAFP TABLE 4 / URI เด็ก 2562 ต้องข้ามไปยาทางเลือกที่สอง
+# (amoxicillin/clavulanate) ไม่ใช่ amoxicillin เดี่ยว -- เป็นจุดตัดสินใจที่พลาดแล้วผู้ป่วยได้ยาไม่ครอบคลุมเชื้อดื้อยา
+_PRIOR_AMOX_RE = re.compile(
+    r"(?:เคย(?:ได้|ใช้|กิน|ทาน|รับ)|ได้รับ|ใช้).{0,40}(?:amoxi|อะม็อก|อะมอก)"
+    r"|(?:amoxi|อะม็อก).{0,40}(?:เดือนก่อน|ที่ผ่านมา|ภายใน\s*30\s*วัน|เมื่อเดือน)", re.IGNORECASE)
+
+
+def prior_antibiotic_note(text: str, f: dict) -> str:
+    """บันทึกเตือนเมื่อเคสเด็กมีประวัติได้ amoxicillin มาก่อนไม่นาน (เปลี่ยนยาตัวแรก)"""
+    if not (f.get("ear") and _PRIOR_AMOX_RE.search(text or "")):
+        return ""
+    return ("**ผู้ป่วยมีประวัติได้รับ amoxicillin มาก่อนหน้านี้ (ภายใน ~30 วัน):** ตามตารางใน Context "
+            "(AAFP TABLE 4 คอลัมน์ Children / URI เด็ก 2562) เคส AOM กลุ่มนี้ **ต้องข้ามไปใช้ยาทางเลือกที่สอง "
+            "คือ Amoxicillin/clavulanate ไม่ใช่ Amoxicillin เดี่ยว** และต้องระบุขนาดเป็น mg/kg/day พร้อมคำนวณตามน้ำหนักจริง "
+            "+ ระยะเวลา ให้ครบ (แม้จะเสนอแนวทางเฝ้าระวังอาการควบคู่ไปด้วยก็ต้องมีตัวเลขขนาดยา)")
+
+
 def practice_flags(f: dict) -> list[str]:
     """เคสที่เข้าข่าย Expert Opinion (แนวปฏิบัติจริงไทย) -- ให้ LLM แสดงบล็อก 'ในทางปฏิบัติจริง' ต่อจากคำแนะนำ Guideline"""
     flags: list[str] = []
@@ -1216,6 +1417,10 @@ _BRAND_SUPPLEMENT: list[tuple[str, str, list[str]]] = [
     (r"Difflam", "Benzydamine HCl", ["benzydamine", "เบนซีดามีน"]),
     (r"Solmax", "Carbocysteine", ["carbocysteine", "carbocisteine", "คาร์โบซิสเทอีน"]),
     (r"Augmentin", "Amoxicillin/clavulanate", ["amoxicillin", "clavulan", "อะม็อกซี"]),
+    # สูตรผสม 3 ตัวยา -- ตารางใหม่ไม่ได้ระบุตัวยาไว้ในชื่อ แต่ต้องบอกให้ครบตาม feedback
+    # (ห้ามเขียนว่ามีแค่ CPM + Phenylephrine เพราะมี Paracetamol ด้วย)
+    (r"Decolgen(?:\s*prin)?|TIFFY(?:\s*DEY)?|ดีคอลเจน|ทิฟฟี่", "Paracetamol + Chlorpheniramine + Phenylephrine",
+     ["paracetamol", "พาราเซตามอล"]),
 ]
 def brand_ingredient(d: dict) -> str:
     """ตัวยา/สารสำคัญของผลิตภัณฑ์ (สำหรับแสดงคู่ชื่อการค้าใน Catalog) -- '' ถ้าเป็นยาชื่อสามัญหรือชื่อที่แสดงมีตัวยาแล้ว"""
@@ -1239,22 +1444,33 @@ _DESCRIPTOR = r"(?:\s+(?:M|prin|DEY|spray|mouth|throat|forte|gargle|lozenges?|ca
 _BRAND_ENTRIES: list[tuple["re.Pattern", str, list[str], bool]] | None = None
 
 
+def _is_synonym_paren(head: str, inner: str) -> bool:
+    """วงเล็บนั้นเป็น 'ชื่อพ้องของยาตัวเดียวกัน' ไม่ใช่การบอกตัวยา (เช่น Acetylcysteine (N-Acetylcysteine))"""
+    h, i = _nz(head), _nz(inner)
+    return bool(h and i and (h in i or i in h))
+
+
+def _clean_ingredient(text: str) -> str:
+    ingr = re.sub(r"มีตัวยา", "", text or "")
+    ingr = re.sub(r"\s*\d[\d.,-]*\s*(?:mg|มิลลิกรัม|ml|มิลลิลิตร)\b", "", ingr, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", ingr).strip(" +")
+
+
 def _brand_entries() -> list[tuple["re.Pattern", str, list[str], bool]]:
     global _BRAND_ENTRIES
     if _BRAND_ENTRIES is not None:
         return _BRAND_ENTRIES
     derived: list[tuple[str, str]] = []   # (head, ingredient label)
     for d in load_formulary():
-        name = d["name"]
-        m = re.match(r"^([A-Za-z][^()]*?)\s*\(([^)]*)\)", name)
-        if not m or not re.search(r"มีตัวยา|\d", m.group(2)):
-            continue
-        ingr = re.sub(r"มีตัวยา", "", m.group(2))
-        ingr = re.sub(r"\s*\d[\d.,-]*\s*(?:mg|มิลลิกรัม|ml|มิลลิลิตร)\b", "", ingr, flags=re.IGNORECASE)
-        ingr = re.sub(r"\s+", " ", ingr).strip(" +")
-        for head in re.split(r"\s*/\s*", m.group(1)):
-            if head.strip():
-                derived.append((head.strip(), ingr))
+        # ตารางใหม่เขียนตัวยาไว้ในวงเล็บท้ายชื่อ (ไม่มีคำว่า "มีตัวยา" แล้ว) และหนึ่งแถวอาจมีหลายสูตร
+        # เช่น "Strepsils chesty cough (Ambroxol) / Strepsils dry cough (Dextromethorphan)" -> เก็บทั้งสองสูตร
+        for m in re.finditer(r"([A-Za-z][A-Za-z0-9 .\-+]*?)\s*\(([^)]*)\)", d["name"]):
+            head, inner = m.group(1).strip(), m.group(2)
+            if not head or _is_synonym_paren(head, inner):
+                continue
+            ingr = _clean_ingredient(inner)
+            if ingr:
+                derived.append((head, ingr))
     first_word_ingr: dict[str, set[str]] = {}
     for head, ingr in derived:
         first_word_ingr.setdefault(head.split()[0].lower(), set()).add(ingr)
@@ -1296,7 +1512,14 @@ def apply_brand_gateway(text: str, line_prefix: str = "") -> str:
             disclosed = all(k in ctx for k in kws) if need_all else any(k in ctx for k in kws)
             if disclosed or "ตัวยา" in new[m.end(): m.end() + 14]:
                 continue
-            new = new[: m.end()] + f" (ตัวยา: {label})" + new[m.end():]
+            tail = new[m.end():]
+            # ถ้าตามหลังชื่อการค้าเป็นวงเล็บ "รายการตัวยาที่ไม่ครบ" ให้แทนที่ทั้งวงเล็บ (ไม่ใช่ต่อท้ายซ้อน)
+            # แต่ต้องไม่แตะวงเล็บที่เป็นข้อมูลอื่น เช่น "(สำหรับเด็ก 3 ปีขึ้นไป)"
+            pm = re.match(r"\s*\(([^)]{0,120})\)", tail)
+            label_words = [w.lower() for w in re.split(r"[+\s]+", label) if len(w) >= 5]
+            if pm and ("+" in pm.group(1) or any(w in pm.group(1).lower() for w in label_words)):
+                tail = tail[pm.end():]
+            new = new[: m.end()] + f" (ตัวยา: {label})" + tail
             ctx += " " + label.lower()
         out.append(new)
     return "\n".join(out)

@@ -138,6 +138,12 @@ const DOSE_ALTERNATIVE_SEPARATOR_PATTERN =
 // gets rendered as a literal "**" by marked. Leaving all "**" untouched and
 // only wrapping the word lets marked's own bold parser pair them correctly;
 // our span just ends up nested inside <strong> when the source was bold.
+// การตัดสินใจ "ไม่จ่ายยาปฏิชีวนะ" คือข้อสรุปที่เภสัชกรต้องเห็นทันที (และเป็นแกนของ RDU/
+// antibiotic stewardship) — ทำเป็นชิปแดงเต็มวลี ไม่ใช่แค่คำว่า "ห้าม" คำเดียว เพื่อให้กวาดตา
+// เจอในคำตอบยาว ๆ ได้เลย. ต้องแทนก่อน marked.parse() เหมือน pattern อื่น และ "ห้ามกิน **"
+// ที่ครอบอยู่ (ไม่งั้น bold ของ marked จะเพี้ยน) — จึงจับเฉพาะตัววลี ไม่แตะ ** รอบข้าง.
+const NO_ANTIBIOTIC_PATTERN =
+  /(?:ยัง)?ไม่(?:มีความจำเป็น|จำเป็น|แนะนำ|ควร)(?:\s*(?:ต้อง|ให้|จ่าย|ใช้|เริ่ม))*\s*(?:ยา)?(?:ปฏิชีวนะ|ต้านจุลชีพ)|ไม่(?:\s*(?:ต้อง|ให้|จ่าย|ใช้))+(?:ยา)?(?:ปฏิชีวนะ|ต้านจุลชีพ)/gi;
 const CAUTION_PATTERN = /ข้อควรระวัง/g;
 const PROHIBIT_PATTERN = /ห้าม/g;
 
@@ -181,6 +187,10 @@ function renderMd(text: string): string {
 
     processed = processed.replace(DOSE_PATTERN, (match) => `<span class="ai-dose-highlight">${match}</span>`);
 
+    processed = processed.replace(
+      NO_ANTIBIOTIC_PATTERN,
+      (m) => `<span class="ai-no-atb">${m}</span>`
+    );
     processed = processed.replace(CAUTION_PATTERN, '<span class="ai-caution-text">ข้อควรระวัง</span>');
     processed = processed.replace(PROHIBIT_PATTERN, '<span class="ai-caution-text">ห้าม</span>');
 
