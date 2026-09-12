@@ -218,11 +218,22 @@ function renderMd(text: string): string {
 const RED_FLAG_PATTERN = /red\s*flags?|สัญญาณเตือน|ข้อควรระวัง/i;
 const NOTE_HEADING_PATTERN = /ข้อซักถาม|หมายเหตุ/;
 
+// "ในทางปฏิบัติจริง (บริบทร้านยาไทย)" is the backend's Expert Opinion block —
+// what a Thai pharmacist actually does at the counter, as opposed to what the
+// (foreign) guideline says. Pharmacists need to spot that distinction at a
+// glance, so the whole block gets a dark-green card of its own rather than
+// blending into the surrounding treatment text.
+const EXPERT_HEADING_PATTERN = /ปฏิบัติจริง|expert opinion|rdu/i;
+// Heading of the "ask history first" reply, so it reads as a question block.
+const ASK_HEADING_PATTERN = /ซักเพิ่มเติม|ซักประวัติ/;
+
 // Best-effort emoji per heading topic, matched by keyword — purely
 // decorative, so an unmatched heading just renders without one instead of
 // breaking anything.
 const HEADING_EMOJI: [RegExp, string][] = [
   [RED_FLAG_PATTERN, '🚨'],
+  [EXPERT_HEADING_PATTERN, '💡'],
+  [ASK_HEADING_PATTERN, '❓'],
   [/วินิจฉัย/, '🩺'],
   [/สรุปอาการ|อาการ(สำคัญ|หลัก)?ที่พบ|อาการนำ/, '📋'],
   [/รักษาด้วยยา|การใช้ยา(ปฏิชีวนะ|ตามอาการ)?|ยาที่แนะนำ|ยาที่ให้|ยาที่จ่าย/, '💊'],
@@ -262,13 +273,58 @@ function applyHeadingBadges(root: HTMLElement) {
       heading.replaceWith(p);
       return;
     }
-    if (RED_FLAG_PATTERN.test(text)) {
+    if (EXPERT_HEADING_PATTERN.test(text)) {
+      heading.classList.add('ai-heading-expert');
+    } else if (RED_FLAG_PATTERN.test(text)) {
       heading.classList.add('ai-heading-warning');
-    } else if (NOTE_HEADING_PATTERN.test(text)) {
+    } else if (NOTE_HEADING_PATTERN.test(text) || ASK_HEADING_PATTERN.test(text)) {
       heading.classList.add('ai-heading-note');
     }
     const emoji = pickHeadingEmoji(text);
     heading.innerHTML = `<span class="ai-heading-emoji">${emoji}</span><span>${escapeHtml(text)}</span>`;
+  });
+}
+
+// Wraps the Expert Opinion heading and everything under it (up to the next
+// heading, or the next drug-category sub-label, which belongs to the regular
+// treatment section) into one green card carrying a label. Runs after
+// applyHeadingBadges so the heading already has its class/emoji; moving the
+// nodes into the wrapper keeps them inside `root`, so the later passes
+// (diagnosis card, symptom highlights) still find them.
+function applyExpertBlocks(root: HTMLElement) {
+  root.querySelectorAll('h1, h2, h3, h4').forEach((heading) => {
+    if (!EXPERT_HEADING_PATTERN.test(heading.textContent || '')) return;
+    if (heading.closest('.ai-expert-block')) return;
+    const parent = heading.parentNode;
+    if (!parent) return;
+
+    const block = document.createElement('div');
+    block.className = 'ai-expert-block';
+    const tag = document.createElement('div');
+    tag.className = 'ai-expert-tag';
+    tag.textContent = 'Expert Opinion · แนวปฏิบัติจริงหน้าร้าน';
+    parent.insertBefore(block, heading);
+    block.appendChild(tag);
+    block.appendChild(heading);
+
+    let node = block.nextElementSibling;
+    while (node && !/^H[1-4]$/.test(node.tagName)) {
+      const next = node.nextElementSibling;
+      const label = node.querySelector(':scope > strong:first-child');
+      if (label && TREATMENT_SUBLABEL_PATTERN.test(label.textContent || '')) break;
+      block.appendChild(node);
+      node = next;
+    }
+  });
+
+  // Same block written inline ("**ในทางปฏิบัติจริง (บริบทร้านยาไทย):** ...")
+  // instead of as its own heading line — tint that element in place.
+  root.querySelectorAll('p, li').forEach((el) => {
+    if (el.closest('.ai-expert-block')) return;
+    const label = el.querySelector(':scope > strong:first-child');
+    if (label && EXPERT_HEADING_PATTERN.test(label.textContent || '')) {
+      el.classList.add('ai-expert-inline');
+    }
   });
 }
 
@@ -419,6 +475,7 @@ export default function MarkdownMessage({ content, onOpenSource, className }: Pr
     const el = ref.current;
     if (!el) return;
     applyHeadingBadges(el);
+    applyExpertBlocks(el);
     applyNoteHighlights(el);
     applyDiagnosisCard(el);
     applySymptomHighlights(el);
