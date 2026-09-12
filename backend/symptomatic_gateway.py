@@ -1270,10 +1270,27 @@ _LINE_REF_RE = re.compile(r"\[Ref:\s*([^\],]+?)\s*(?:,[^\]]*)?\]")
 
 
 def _atb_in(text: str) -> set[str]:
-    """ชื่อยาปฏิชีวนะที่พบในข้อความ (เก็บเฉพาะชื่อที่ยาวที่สุด เช่น 'penicillin v' ไม่นับ 'penicillin' ซ้ำ)"""
+    """ชื่อยาปฏิชีวนะที่ "ถูกกล่าวถึงจริง" ในข้อความ
+
+    ต้องดูเป็นรายตำแหน่ง ไม่ใช่รายชื่อ: ตาราง AAFP หน้า 6 มีทั้ง "Amoxicillin/clavulanate" (ABRS)
+    และ "Amoxicillin" เดี่ยว (AOM first-line) อยู่คนละแถว -- ถ้าตัดชื่อสั้นทิ้งเพราะเป็นสตริงย่อยของชื่อยาว
+    จะทำให้หา "amoxicillin" ในตารางไม่เจอ แล้วเคสเด็กจะอ้างอิงได้เล่มเดียว
+    """
     low = (text or "").lower()
-    found = {name for name in _ATB_NAMES if name in low}
-    return {n for n in found if not any(n != o and n in o for o in found)}
+    spans: list[tuple[int, int]] = []
+    found: set[str] = set()
+    for name in sorted(_ATB_NAMES, key=len, reverse=True):   # ชื่อยาวจับจองตำแหน่งก่อน
+        start = 0
+        while True:
+            i = low.find(name, start)
+            if i < 0:
+                break
+            end = i + len(name)
+            if not any(s <= i and end <= e for s, e in spans):   # ไม่ได้อยู่ในชื่อยาวที่จับไปแล้ว
+                spans.append((i, end))
+                found.add(name)
+            start = i + 1
+    return found
 
 
 def guideline_pages_by_drug(chunks: list[dict]) -> dict[str, dict[str, str]]:
