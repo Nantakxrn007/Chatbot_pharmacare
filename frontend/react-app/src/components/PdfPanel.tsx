@@ -11,7 +11,7 @@ function resolveFilename(source: string): string {
   const upper = (source || '').toUpperCase();
   if (upper.includes('AAFP')) return 'AAFP_2022_Original.pdf';
   if (upper.includes('URI')) return 'P2_URI.pdf';
-  if (upper.includes('DOSE')) return 'Dose supportive.pdf';
+  if (upper.includes('DOSE')) return 'Dose supportive new.pdf';
   return source + '.pdf';
 }
 

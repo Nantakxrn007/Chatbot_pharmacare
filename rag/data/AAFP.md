@@ -79,7 +79,6 @@ Source: For more information on Choosing Wisely, see https://www.choosingwisely.
 
 
 <!-- PAGE 4 -->
-
 worsen.<sup>4,11,12</sup> Although watchful waiting in children with AOM may be associated with higher costs to patients and the health care system due to the additional physician visits, it has decreased the incidence of antibiotics initiation.<sup>33</sup> Amoxicillin is the first-line treatment in children with AOM when the decision is made to treat with antibiotics and the child has not received amoxicillin in the past 30 days, does not have concurrent purulent conjunctivitis, and is not allergic to penicillin.<sup>4,11,12</sup> Children with more severe disease (i.e., severe otalgia, otalgia lasting more than 48 hours, or a temperature of 102.2°F [39℃] or greater) and children 23 months or younger with bilateral infection are more likely to benefit from antibiotic treatment with high-dose amox- icillin.<sup>11</sup> Children younger than two years and those with severe symptoms should receive a 10-day course of antibiot- ics, whereas a five- to seven-day course is sufficient in older children with mild to moderate symptoms.<sup>11</sup>
 
 ### Group A Beta-Hemolytic Streptococcal Pharyngitis
@@ -117,6 +116,9 @@ A Cochrane review of treatments for acute rhinosinusitis concluded that consider
 <table><tr><td colspan="2">TABLE 3</td></tr><tr><td colspan="2"><strong>IDSA Guidelines for Acute Bacterial Rhinosinusitis</strong></td></tr><tr><td colspan="2">Treat acute bacterial rhinosinusitis in patients with any one of the following symptom complexes:</td></tr><tr><td colspan="2">Onset with severe symptoms or signs, including high fever (≥ 102.2°F [39℃]) and purulent nasal discharge or facial pain lasting for at least three to four consecutive days at the beginning of the illness</td></tr><tr><td colspan="2">Persistent symptoms or signs compatible with acute bacterial rhinosinusitis lasting ≥ 10 days without clinical improvement</td></tr><tr><td colspan="2">Worsening symptoms or signs for three to four days characterized by the onset of fever, headache, or increase in nasal discharge following a typical viral upper respiratory tract infection that lasted five to six days and was initially improving (i.e., double sickening)</td></tr><tr><td colspan="2">IDSA = Infectious Diseases Society of America.</td></tr><tr><td colspan="2">Information from reference 9.</td></tr></table>
 
 guidelines, antibiotics should be started for patients manifesting any one of the constellations of symptoms outlined in Table 3.<sup>9</sup>
+
+**Note on Thai Clinical Practice:**
+In actual clinical practice in Thailand, antibiotics can be considered even if symptoms have lasted fewer than 10 days, provided that signs and symptoms clearly indicate sinusitis, based on the pharmacist's professional judgment.
 
 The predominant causes of acute bacterial rhinosinusitis are H. influenzae, S. pneumoniae, and Moraxella catarrhalis. Based on this microbiology, the first-line treatment for acute bacterial rhinosinusitis is amoxicillin/clavulanate (Augmentin), given for five to seven days in adults and 10 to 14 days in children.<sup>9,10</sup>
 

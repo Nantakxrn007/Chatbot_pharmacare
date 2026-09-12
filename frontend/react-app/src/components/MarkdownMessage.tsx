@@ -154,11 +154,13 @@ const PROHIBIT_PATTERN = /ห้าม/g;
 // rest of the sentence.
 const CASE_TYPE_LABEL_PATTERN = /\s*\(ประเภท\s*\d+\)/g;
 
-// Highlight an actual fever reading in "สรุปอาการ" — the fact most likely
-// to get missed on a quick read. Requires a negation guard ("ไม่มีไข้" is
-// reassuring, not an alert) and a number attached — a bare "มีไข้" with no
-// reading isn't worth flagging.
-const FEVER_PATTERN = /(?<!ไม่\s*)ไข้(?:สูง|ต่ำ)?\s*\d+(?:\.\d+)?\s*(?:°|องศา)(?:เซลเซียส)?/g;
+// Highlight a fever mention in "สรุปอาการ" — the fact most likely to get
+// missed on a quick read. Requires a negation guard ("ไม่มีไข้" is
+// reassuring, not an alert) and either a severity word (ไข้สูง/ไข้ต่ำ, even
+// with no reading attached) or an actual number — a bare "มีไข้" with
+// neither isn't worth flagging.
+const FEVER_PATTERN =
+  /(?<!ไม่\s*)ไข้(?:(?:สูง|ต่ำ)(?:\s*\(?\s*\d+(?:\.\d+)?\s*(?:°|องศา)(?:เซลเซียส)?\)?)?|\s*\(?\s*\d+(?:\.\d+)?\s*(?:°|องศา)(?:เซลเซียส)?\)?)/g;
 
 function renderMd(text: string): string {
   if (!text) return '';
@@ -247,16 +249,18 @@ const HEADING_EMOJI: [RegExp, string][] = [
   [/วินิจฉัย/, '🩺'],
   [/สรุปอาการ|อาการ(สำคัญ|หลัก)?ที่พบ|อาการนำ/, '📋'],
   [/รักษาด้วยยา|การใช้ยา(ปฏิชีวนะ|ตามอาการ)?|ยาที่แนะนำ|ยาที่ให้|ยาที่จ่าย/, '💊'],
+  [/รักษาและการจัดการ|การจัดการ(เร่งด่วน)?/, '🚑'],
   [/ขนาดยา|dose/i, '⚖️'],
   [/แพ้ยา|ประวัติแพ้/, '⚠️'],
   [/ดูแลตัวเอง|การดูแลรักษาเบื้องต้น|คำแนะนำ(การดูแล|ทั่วไป)/, '🏠'],
   [/เฝ้าระวัง|ติดตามอาการ/, '👀'],
   [/ข้อซักถาม/, '❓'],
   [/หมายเหตุ/, '📌'],
-  [/ส่งต่อ|พบแพทย์|refer/i, '🏥'],
+  [/ส่งต่อ|พบแพทย์|refer|ไปโรงพยาบาลทันที|เหตุผล.*โรงพยาบาล/, '🏥'],
+  [/ระหว่างการเดินทาง|เดินทางไปโรงพยาบาล/, '🚗'],
 ];
 
-const DEFAULT_HEADING_EMOJI = '🔹';
+const DEFAULT_HEADING_EMOJI = '📍';
 
 function pickHeadingEmoji(text: string): string {
   const match = HEADING_EMOJI.find(([pattern]) => pattern.test(text));

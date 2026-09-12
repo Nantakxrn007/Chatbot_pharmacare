@@ -40,6 +40,9 @@ ENV_FILE = PROJECT_ROOT / ".env"
 
 load_dotenv(ENV_FILE)
 
+QDRANT_URL = os.getenv("QDRANT_URL")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+
 # ─── Source documents (chunk pipeline) ───────────────────────────────────────
 
 MD_FILES: list[tuple[str, str]] = [
@@ -53,10 +56,11 @@ GUIDELINE_SOURCES: tuple[str, ...] = ("AAFP", "URI", "Dose")
 PDF_FILENAMES: dict[str, str] = {
     "AAFP": "AAFP_2022_Original.pdf",
     "URI": "P2_URI.pdf",
-    "Dose": "Dose supportive.pdf",
+    "Dose": "Dose supportive new.pdf",
 }
 
 DOSE_PDF_NAME = PDF_FILENAMES["Dose"]
+DOSE_PDF = DATA_DIR / DOSE_PDF_NAME
 
 # ─── Models & collections ────────────────────────────────────────────────────
 

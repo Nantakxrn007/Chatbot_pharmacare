@@ -25,6 +25,8 @@ from backend.config import (
     COLLECTION_NAME,
     CHUNKS_FILE as _CHUNKS_FILE,
     EMBED_LOG_FILE,
+    QDRANT_URL,
+    QDRANT_API_KEY,
     qdrant_path,
 )
 
@@ -121,6 +123,7 @@ def embed_to_qdrant(
     chunks_file     : str = CHUNKS_FILE,
     chroma_dir      : str = CHROMA_DIR,
     collection_name : str = COLLECTION_NAME,
+    reset_collection: bool = False,
 ):
     # เคลียร์ log
     Path(LOG_FILE).parent.mkdir(parents=True, exist_ok=True)
@@ -149,7 +152,12 @@ def embed_to_qdrant(
     from qdrant_client.http.models import Distance, VectorParams, PointStruct
     import uuid
 
-    client = QdrantClient(path=chroma_dir)
+    if QDRANT_URL and QDRANT_API_KEY:
+        client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+        qdrant_label = f"CLOUD {QDRANT_URL}"
+    else:
+        client = QdrantClient(path=chroma_dir)
+        qdrant_label = f"LOCAL {chroma_dir}"
     
     # Determine vector size dynamically using the first actual chunk
     if not chunks:
@@ -163,12 +171,27 @@ def embed_to_qdrant(
     
     # Check if collection exists, if not create it
     collections = client.get_collections().collections
-    if not any(c.name == collection_name for c in collections):
+    exists = any(c.name == collection_name for c in collections)
+    if reset_collection and exists:
+        client.delete_collection(collection_name)
+        exists = False
+        log_info(f"ลบ collection เก่า '{collection_name}' แล้วสร้างใหม่")
+    if not exists:
         client.create_collection(
             collection_name=collection_name,
             vectors_config=VectorParams(size=v_size, distance=Distance.COSINE),
         )
-    log_info(f"Qdrant: {chroma_dir} | collection: {collection_name}")
+        try:
+            from qdrant_client.http.models import PayloadSchemaType
+            for field in ("patient_group", "source"):
+                client.create_payload_index(
+                    collection_name=collection_name,
+                    field_name=field,
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
+        except Exception as e:
+            log_warn(f"สร้าง payload index ไม่ได้ (local มักไม่จำเป็น): {e}")
+    log_info(f"Qdrant: {qdrant_label} | collection: {collection_name}")
 
     # ── Resume: ข้าม chunk ที่ embed ไปแล้ว ──────────────────────────────
     # For Qdrant, we can scroll to get existing chunk_id from payload if needed

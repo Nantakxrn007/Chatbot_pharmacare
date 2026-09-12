@@ -1,12 +1,14 @@
 """
-Pipeline: MD/CSV -> Chunk -> Embed -> Qdrant
+Pipeline: PDF/MD/CSV -> Chunk -> Embed -> Qdrant
 ==========================================
-Run from project root (d:\\Fast):
+Run from project root:
 
-    python rag/pipeline.py              # chunk + embed
-    python rag/pipeline.py --chunk-only # chunk only
-    python rag/pipeline.py --embed-only # embed only (requires chunks.jsonl)
-    python rag/pipeline.py --reset      # delete old DB, re-chunk + re-embed
+    python rag/pipeline.py                # chunk + embed
+    python rag/pipeline.py --chunk-only   # chunk only
+    python rag/pipeline.py --embed-only   # embed only (requires chunks.jsonl)
+    python rag/pipeline.py --reset        # delete old DB, re-chunk + re-embed
+    python rag/pipeline.py --dose-pdf     # Dose supportive.pdf -> CSV
+    python rag/pipeline.py --dose-pdf --reset  # PDF -> CSV แล้ว re-index
 
 Paths come from backend.config (rag/data, rag/qdrant_db).
 """
@@ -14,7 +16,6 @@ Paths come from backend.config (rag/data, rag/qdrant_db).
 from __future__ import annotations
 
 import sys
-import shutil
 from pathlib import Path
 
 # Allow `python rag/pipeline.py` from repo root
@@ -33,6 +34,7 @@ from backend.config import (
 )
 from backend.md_chunker import ChunkConfig, chunk_md_file, save_chunks_jsonl, print_summary
 from backend.dose_chunker import chunk_dose_csv, print_dose_summary
+from backend.dose_pdf_to_csv import pdf_to_dose_csv
 from backend.embed_to_qdrant import embed_to_qdrant
 
 # ─── Chunk Config ────────────────────────────────────────────────────────────
@@ -59,6 +61,10 @@ cfg = ChunkConfig(
 
 QDRANT_DIR_STR = str(QDRANT_DIR)
 CHUNKS_FILE_STR = str(CHUNKS_FILE)
+
+
+def run_dose_pdf():
+    pdf_to_dose_csv()
 
 
 def run_chunk():
@@ -89,7 +95,7 @@ def run_chunk():
     return all_chunks
 
 
-def run_embed():
+def run_embed(reset_collection: bool = False):
     if not Path(CHUNKS_FILE_STR).exists():
         print(f"[ERROR] {CHUNKS_FILE_STR} not found -- run chunk first")
         return
@@ -98,22 +104,27 @@ def run_embed():
         chunks_file=CHUNKS_FILE_STR,
         chroma_dir=QDRANT_DIR_STR,
         collection_name=COLLECTION_NAME,
+        reset_collection=reset_collection,
     )
 
 
 def run_reset():
-    if QDRANT_DIR.exists():
-        shutil.rmtree(QDRANT_DIR)
-        print(f"[RESET] Deleted {QDRANT_DIR}")
     if Path(CHUNKS_FILE_STR).exists():
         Path(CHUNKS_FILE_STR).unlink()
         print(f"[RESET] Deleted {CHUNKS_FILE_STR}")
     run_chunk()
-    run_embed()
+    run_embed(reset_collection=True)
 
 
 if __name__ == "__main__":
     args = set(sys.argv[1:])
+    dose_pdf = "--dose-pdf" in args
+    args.discard("--dose-pdf")
+
+    if dose_pdf:
+        run_dose_pdf()
+        if not args:
+            sys.exit(0)
 
     if "--reset" in args:
         run_reset()
