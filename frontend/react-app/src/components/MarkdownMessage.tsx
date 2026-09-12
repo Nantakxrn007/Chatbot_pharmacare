@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { marked } from 'marked';
+import { DRUG_NAME_PATTERN } from '../lib/drugNames';
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -138,6 +139,12 @@ const DOSE_ALTERNATIVE_SEPARATOR_PATTERN =
 // gets rendered as a literal "**" by marked. Leaving all "**" untouched and
 // only wrapping the word lets marked's own bold parser pair them correctly;
 // our span just ends up nested inside <strong> when the source was bold.
+// การตัดสินใจ "ไม่จ่ายยาปฏิชีวนะ" คือข้อสรุปที่เภสัชกรต้องเห็นทันที (และเป็นแกนของ RDU/
+// antibiotic stewardship) — ทำเป็นชิปแดงเต็มวลี ไม่ใช่แค่คำว่า "ห้าม" คำเดียว เพื่อให้กวาดตา
+// เจอในคำตอบยาว ๆ ได้เลย. ต้องแทนก่อน marked.parse() เหมือน pattern อื่น และ "ห้ามกิน **"
+// ที่ครอบอยู่ (ไม่งั้น bold ของ marked จะเพี้ยน) — จึงจับเฉพาะตัววลี ไม่แตะ ** รอบข้าง.
+const NO_ANTIBIOTIC_PATTERN =
+  /(?:ยัง)?ไม่(?:มีความจำเป็น|จำเป็น|แนะนำ|ควร)(?:\s*(?:ต้อง|ให้|จ่าย|ใช้|เริ่ม))*\s*(?:ยา)?(?:ปฏิชีวนะ|ต้านจุลชีพ)|ไม่(?:\s*(?:ต้อง|ให้|จ่าย|ใช้))+(?:ยา)?(?:ปฏิชีวนะ|ต้านจุลชีพ)/gi;
 const CAUTION_PATTERN = /ข้อควรระวัง/g;
 const PROHIBIT_PATTERN = /ห้าม/g;
 
@@ -155,6 +162,25 @@ const CASE_TYPE_LABEL_PATTERN = /\s*\(ประเภท\s*\d+\)/g;
 // neither isn't worth flagging.
 const FEVER_PATTERN =
   /(?<!ไม่\s*)ไข้(?:(?:สูง|ต่ำ)(?:\s*\(?\s*\d+(?:\.\d+)?\s*(?:°|องศา)(?:เซลเซียส)?\)?)?|\s*\(?\s*\d+(?:\.\d+)?\s*(?:°|องศา)(?:เซลเซียส)?\)?)/g;
+
+// Drug names read as plain body text while their dose sits in a bold chip
+// right next to them, so the name — the thing a pharmacist actually scans a
+// long answer for — is the hardest part to find. Give every drug/active-
+// ingredient name a dark bold treatment so "Paracetamol 10-15 mg/kg/dose"
+// reads as one emphasized unit.
+//
+// Only applied to text OUTSIDE "[...]" blocks, "<...>" tags and bare URLs: a
+// "[Ref: ... อ้างอิงจาก https://.../amoxicillin-dosing]" marker carries drug
+// names inside a URL, and wrapping one in a span there would corrupt the link
+// (and the data-* attributes the earlier passes already emitted).
+const PROTECTED_SPANS = /(\[[^\]]*\]|<[^>]*>|https?:\/\/[^\s)\]]+)/;
+
+function highlightOutsideMarkers(text: string, pattern: RegExp, cls: string): string {
+  return text
+    .split(new RegExp(PROTECTED_SPANS.source, 'g'))
+    .map((seg, i) => (i % 2 === 1 ? seg : seg.replace(pattern, (m) => `<span class="${cls}">${m}</span>`)))
+    .join('');
+}
 
 function renderMd(text: string): string {
   if (!text) return '';
@@ -183,8 +209,16 @@ function renderMd(text: string): string {
 
     processed = processed.replace(DOSE_PATTERN, (match) => `<span class="ai-dose-highlight">${match}</span>`);
 
+    processed = processed.replace(
+      NO_ANTIBIOTIC_PATTERN,
+      (m) => `<span class="ai-no-atb">${m}</span>`
+    );
     processed = processed.replace(CAUTION_PATTERN, '<span class="ai-caution-text">ข้อควรระวัง</span>');
     processed = processed.replace(PROHIBIT_PATTERN, '<span class="ai-caution-text">ห้าม</span>');
+
+    // After the dose/caution passes (so their spans are already tags this skips)
+    // and before "[Ref: ...]" becomes HTML, while the markers are still "[...]".
+    processed = highlightOutsideMarkers(processed, DRUG_NAME_PATTERN, 'ai-drug-highlight');
 
     processed = processed.replace(/\[Ref:\s*(.*?)\]/gi, (_match, content: string) => {
       if (content.includes('ความรู้ทั่วไป') || content.includes('อ้างอิงจาก')) {
@@ -220,11 +254,22 @@ function renderMd(text: string): string {
 const RED_FLAG_PATTERN = /red\s*flags?|สัญญาณเตือน|ข้อควรระวัง/i;
 const NOTE_HEADING_PATTERN = /ข้อซักถาม|หมายเหตุ/;
 
+// "ในทางปฏิบัติจริง (บริบทร้านยาไทย)" is the backend's Expert Opinion block —
+// what a Thai pharmacist actually does at the counter, as opposed to what the
+// (foreign) guideline says. Pharmacists need to spot that distinction at a
+// glance, so the whole block gets a dark-green card of its own rather than
+// blending into the surrounding treatment text.
+const EXPERT_HEADING_PATTERN = /ปฏิบัติจริง|expert opinion|rdu/i;
+// Heading of the "ask history first" reply, so it reads as a question block.
+const ASK_HEADING_PATTERN = /ซักเพิ่มเติม|ซักประวัติ/;
+
 // Best-effort emoji per heading topic, matched by keyword — purely
 // decorative, so an unmatched heading just renders without one instead of
 // breaking anything.
 const HEADING_EMOJI: [RegExp, string][] = [
   [RED_FLAG_PATTERN, '🚨'],
+  [EXPERT_HEADING_PATTERN, '💡'],
+  [ASK_HEADING_PATTERN, '❓'],
   [/วินิจฉัย/, '🩺'],
   [/สรุปอาการ|อาการ(สำคัญ|หลัก)?ที่พบ|อาการนำ/, '📋'],
   [/รักษาด้วยยา|การใช้ยา(ปฏิชีวนะ|ตามอาการ)?|ยาที่แนะนำ|ยาที่ให้|ยาที่จ่าย/, '💊'],
@@ -266,13 +311,58 @@ function applyHeadingBadges(root: HTMLElement) {
       heading.replaceWith(p);
       return;
     }
-    if (RED_FLAG_PATTERN.test(text)) {
+    if (EXPERT_HEADING_PATTERN.test(text)) {
+      heading.classList.add('ai-heading-expert');
+    } else if (RED_FLAG_PATTERN.test(text)) {
       heading.classList.add('ai-heading-warning');
-    } else if (NOTE_HEADING_PATTERN.test(text)) {
+    } else if (NOTE_HEADING_PATTERN.test(text) || ASK_HEADING_PATTERN.test(text)) {
       heading.classList.add('ai-heading-note');
     }
     const emoji = pickHeadingEmoji(text);
     heading.innerHTML = `<span class="ai-heading-emoji">${emoji}</span><span>${escapeHtml(text)}</span>`;
+  });
+}
+
+// Wraps the Expert Opinion heading and everything under it (up to the next
+// heading, or the next drug-category sub-label, which belongs to the regular
+// treatment section) into one green card carrying a label. Runs after
+// applyHeadingBadges so the heading already has its class/emoji; moving the
+// nodes into the wrapper keeps them inside `root`, so the later passes
+// (diagnosis card, symptom highlights) still find them.
+function applyExpertBlocks(root: HTMLElement) {
+  root.querySelectorAll('h1, h2, h3, h4').forEach((heading) => {
+    if (!EXPERT_HEADING_PATTERN.test(heading.textContent || '')) return;
+    if (heading.closest('.ai-expert-block')) return;
+    const parent = heading.parentNode;
+    if (!parent) return;
+
+    const block = document.createElement('div');
+    block.className = 'ai-expert-block';
+    const tag = document.createElement('div');
+    tag.className = 'ai-expert-tag';
+    tag.textContent = 'Expert Opinion · แนวปฏิบัติจริงหน้าร้าน';
+    parent.insertBefore(block, heading);
+    block.appendChild(tag);
+    block.appendChild(heading);
+
+    let node = block.nextElementSibling;
+    while (node && !/^H[1-4]$/.test(node.tagName)) {
+      const next = node.nextElementSibling;
+      const label = node.querySelector(':scope > strong:first-child');
+      if (label && TREATMENT_SUBLABEL_PATTERN.test(label.textContent || '')) break;
+      block.appendChild(node);
+      node = next;
+    }
+  });
+
+  // Same block written inline ("**ในทางปฏิบัติจริง (บริบทร้านยาไทย):** ...")
+  // instead of as its own heading line — tint that element in place.
+  root.querySelectorAll('p, li').forEach((el) => {
+    if (el.closest('.ai-expert-block')) return;
+    const label = el.querySelector(':scope > strong:first-child');
+    if (label && EXPERT_HEADING_PATTERN.test(label.textContent || '')) {
+      el.classList.add('ai-expert-inline');
+    }
   });
 }
 
@@ -423,6 +513,7 @@ export default function MarkdownMessage({ content, onOpenSource, className }: Pr
     const el = ref.current;
     if (!el) return;
     applyHeadingBadges(el);
+    applyExpertBlocks(el);
     applyNoteHighlights(el);
     applyDiagnosisCard(el);
     applySymptomHighlights(el);

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import PdfView from './PdfView';
 
 export interface PdfTarget {
   source: string;
@@ -21,38 +22,29 @@ interface Props {
 }
 
 export default function PdfPanel({ target, onClose }: Props) {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const resizerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState<number | null>(null);
+  // หน้าที่ "กำลังแสดงจริง" ที่ตัวอ่านรายงานกลับมา -- โชว์คู่กับหน้าที่ถูกอ้าง
+  // เพื่อให้เห็นทันทีถ้าสองค่านี้ไม่ตรงกัน (อาการที่เคยเจอ)
+  const [shown, setShown] = useState<{ page: number; total: number } | null>(null);
+  // ChatPage สร้าง target object ใหม่ทุกคลิก -> นับเป็น "คำขอใหม่" ได้แม้เลขหน้าเดิม
+  const [req, setReq] = useState(0);
 
   const isOpen = !!target;
+  const filename = target ? resolveFilename(target.source) : '';
+  const pageNum = target ? (target.page || '').replace(/\D/g, '') : '';
 
-  // Force-reload trick: reset to about:blank, then set the real src on the
-  // next tick so #page=N hash always re-triggers the PDF viewer's jump.
   useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-    if (!target) {
-      iframe.src = '';
-      return;
+    if (!isOpen) {
+      setWidth(null);
+      setShown(null);
     }
-
-    const filename = resolveFilename(target.source);
-    const pageNum = (target.page || '').replace(/\D/g, '');
-    const hash = pageNum ? `#page=${pageNum}` : '';
-    const pdfUrl = `/data/${encodeURI(filename)}?t=${Date.now()}${hash}`;
-
-    iframe.src = 'about:blank';
-    const timer = setTimeout(() => {
-      iframe.src = pdfUrl;
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [target]);
+  }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen) setWidth(null);
-  }, [isOpen]);
+    if (target) setReq((r) => r + 1);
+  }, [target]);
 
   useEffect(() => {
     const resizer = resizerRef.current;
@@ -64,8 +56,8 @@ export default function PdfPanel({ target, onClose }: Props) {
     const onMouseDown = () => {
       resizing = true;
       resizer.classList.add('dragging');
+      panel.classList.add('resizing');
       document.body.style.cursor = 'col-resize';
-      if (iframeRef.current) iframeRef.current.style.pointerEvents = 'none';
     };
     const onMouseMove = (e: MouseEvent) => {
       if (!resizing) return;
@@ -78,8 +70,8 @@ export default function PdfPanel({ target, onClose }: Props) {
       if (!resizing) return;
       resizing = false;
       resizer.classList.remove('dragging');
+      panel.classList.remove('resizing');
       document.body.style.cursor = '';
-      if (iframeRef.current) iframeRef.current.style.pointerEvents = 'auto';
     };
 
     resizer.addEventListener('mousedown', onMouseDown);
@@ -92,9 +84,10 @@ export default function PdfPanel({ target, onClose }: Props) {
     };
   }, []);
 
-  const pageNum = target ? (target.page || '').replace(/\D/g, '') : '';
   const label = pageNum ? `หน้า ${pageNum}` : 'PDF';
   const title = target ? `📄 ${target.source} (${label})` : '';
+  // ไม่ตรงกัน = เปิดผิดหน้า ต้องเห็นชัด ไม่ใช่ปล่อยให้ผู้ใช้จับได้เอง
+  const mismatch = !!(pageNum && shown && shown.page !== Number(pageNum));
 
   return (
     <aside
@@ -105,13 +98,26 @@ export default function PdfPanel({ target, onClose }: Props) {
       <div className="resizer" ref={resizerRef} />
       <div className="pdf-header">
         <h3 title={target?.heading || undefined}>{title || 'เอกสารอ้างอิง'}</h3>
+        {mismatch && (
+          <span className="pdf-mismatch" title="หน้าที่แสดงไม่ตรงกับหน้าที่อ้าง">
+            กำลังแสดงหน้า {shown?.page}
+          </span>
+        )}
         <button className="pdf-close-btn" onClick={onClose} title="ปิดหน้าต่าง">
           <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
       </div>
-      <iframe ref={iframeRef} className="pdf-iframe" title="PDF viewer" />
+      {isOpen && (
+        <PdfView
+          key={filename}
+          url={`/data/${encodeURI(filename)}`}
+          page={pageNum ? Number(pageNum) : 1}
+          jumpKey={req}
+          onPageChange={(page, total) => setShown({ page, total })}
+        />
+      )}
     </aside>
   );
 }
