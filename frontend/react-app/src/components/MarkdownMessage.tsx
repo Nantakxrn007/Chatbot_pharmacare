@@ -102,6 +102,28 @@ const SCORE_LINE_PATTERN = /:\s*\d/;
 // hasn't used yet without needing another patch each time one shows up.
 const TREATMENT_SUBLABEL_PATTERN = /^ยา\S/;
 
+// Detects a symptomatic-drug-category answer (e.g. "- ยาลดน้ำมูก/คัดจมูก:
+// ...", "**ยาแก้ปวด/ลดไข้:** ...") anywhere in the raw markdown, so the chat
+// can offer a "อยากรู้ว่ายาภายในร้านมีอะไรบ้าง" follow-up chip under it. The
+// backend doesn't emit a dedicated marker for this yet, so this reuses the
+// same "line starts with ยา" heuristic as TREATMENT_SUBLABEL_PATTERN instead
+// of waiting on a backend/prompt change.
+const SYMPTOMATIC_ADVICE_LINE_PATTERN = /(?:^|\n)\s*(?:[-*]\s*)?\*{0,2}ยา[^\n*:：]{0,40}[:：]/;
+
+// Per the team's actual design for this popup (confirmed in chat: the first
+// answer should only name the *symptomatic drug group* per guideline, with
+// dose/specific-drug lookup deferred to this popup being clicked) — the
+// popup is meant to show whenever a symptomatic-drug-category answer
+// appears, full stop. It doesn't try to detect whether the backend already
+// leaked a specific drug name into that first answer (an earlier version of
+// this function did, to avoid an apparently-redundant popup) — if that's
+// happening, the popup showing anyway is the visible signal that the
+// backend isn't yet deferring dose lookup the way the team agreed, which is
+// more useful than silently hiding it.
+export function hasSymptomaticDrugAdvice(content: string): boolean {
+  return SYMPTOMATIC_ADVICE_LINE_PATTERN.test(content || '');
+}
+
 // A bullet's "main point -- เหตุผล: ..." reasoning clause reads as one run-on
 // line — break it onto its own line before rendering so it's visually
 // separated instead of crammed after the dash.
@@ -129,6 +151,36 @@ const DOSE_CLAUSE_SEPARATOR_PATTERN = /\s+(?=โดยขนาดยา|โด�
 const DOSE_ALTERNATIVE_SEPARATOR_PATTERN =
   /(?<=(?:ชั่วโมง|วัน|เม็ด|mg|mL|ml|มก\.|มล\.)(?:\s*\[Ref:[^\]]*\])?)\s+(?=หรือ)/g;
 
+// A bullet that lists several drug *choices* in one run-on sentence
+// ("...เช่น **Ibuprofen** 200-400 mg [Ref: Dose, หน้า 10], **Diclofenac**
+// 100-150 mg/วัน [Ref: Dose, หน้า 12], หรือ **Naproxen** ...") reads as one
+// dense wall — a plain line break wasn't enough (feedback: "ก็ต้องขึ้น
+// บรรทัดใหม่สิ ยังไม่มี bullet ข้างหน้าเลย"), each choice needs to be its
+// own list item. Mark the boundary here — right after the previous drug's
+// "[Ref: ...]" citation and before the next bolded drug name (with or
+// without a leading "หรือ") — and before the *first* choice too (right
+// after "เช่น") with an invisible sentinel character that survives
+// marked.parse() as a plain text node; splitDrugChoiceListItems() below
+// then cuts the rendered <li> into separate sibling <li>s at each sentinel,
+// so the split happens after parsing (safe across whatever inline
+// formatting marked produced) rather than by cutting the markdown source
+// itself.
+const CHOICE_SPLIT_MARKER = '';
+// The comma before "หรือ **Drug**" isn't always there — "...ชั่วโมง)
+// [Ref: Dose, หน้า 8] หรือ **Ibuprofen**..." separates choices with just
+// "หรือ" and no comma just as often as with one, so the comma has to be
+// optional here rather than required. IMPORTANT: the gap can only be
+// horizontal whitespace, never a newline — an earlier version allowed \s
+// (which matches newlines too) and that let a citation at the end of one
+// paragraph pair up with an unrelated bold run at the start of the *next*
+// paragraph across the blank line between them, wrongly pulling an
+// unrelated heading into the same drug bullet as a "choice".
+const MULTI_DRUG_CHOICE_SEPARATOR_PATTERN = /(?<=\])[ \t]*,?[ \t]*(?=(?:หรือ[ \t]+)?\*\*)/g;
+// Same horizontal-whitespace-only constraint as above — "เช่น"/"แนะนำ" must
+// be directly followed by the bold drug name on the *same* line, not just
+// somewhere earlier in the text with a paragraph break in between.
+const FIRST_DRUG_CHOICE_SEPARATOR_PATTERN = /(?<=เช่น|แนะนำ)[ \t]+(?=\*\*)/g;
+
 // "ข้อควรระวัง" / "ห้าม..." are flagged red wherever they appear inline.
 // IMPORTANT: this only wraps the bare word — it must NOT consume any
 // surrounding "**". The backend sometimes bolds just the word ("**ห้าม**")
@@ -145,8 +197,19 @@ const DOSE_ALTERNATIVE_SEPARATOR_PATTERN =
 // ที่ครอบอยู่ (ไม่งั้น bold ของ marked จะเพี้ยน) — จึงจับเฉพาะตัววลี ไม่แตะ ** รอบข้าง.
 const NO_ANTIBIOTIC_PATTERN =
   /(?:ยัง)?ไม่(?:มีความจำเป็น|จำเป็น|แนะนำ|ควร)(?:\s*(?:ต้อง|ให้|จ่าย|ใช้|เริ่ม))*\s*(?:ยา)?(?:ปฏิชีวนะ|ต้านจุลชีพ)|ไม่(?:\s*(?:ต้อง|ให้|จ่าย|ใช้))+(?:ยา)?(?:ปฏิชีวนะ|ต้านจุลชีพ)/gi;
-const CAUTION_PATTERN = /ข้อควรระวัง/g;
-const PROHIBIT_PATTERN = /ห้าม/g;
+// Bare "ข้อควรระวัง" also fired on mentions that aren't an actual warning
+// (e.g. a closing "...สามารถสอบถามเพิ่มเติมเกี่ยวกับข้อควรระวังในโรค
+// ประจำตัว..." invitation to ask more, not a warning itself) — a real
+// warning is always written as a "ข้อควรระวัง:" label introducing one, so
+// require the colon.
+const CAUTION_PATTERN = /ข้อควรระวัง(?=\s*:)/g;
+// Bare "ห้าม" used to fire on every occurrence, including ones that aren't a
+// real instruction (e.g. "เป็นข้อห้ามในผู้ป่วยโรคไต") — with a genuine
+// warning nearly every line in a drug-heavy answer, that painted the whole
+// answer red and buried the ones that actually mattered. Only highlight it
+// right before an action verb ("ห้ามใช้", "ห้ามให้", "ห้ามจ่าย", ...), which
+// is what an actual prohibition reads like.
+const PROHIBIT_PATTERN = /ห้าม(?=ใช้|ให้|จ่าย|กิน|รับประทาน|เริ่ม)/g;
 
 // The backend tags the opening case-classification line with an internal
 // category number ("เคสผู้ป่วยใหม่ (ประเภท 2)") — meaningful to us, not to
@@ -192,6 +255,12 @@ function renderMd(text: string): string {
     processed = processed.replace(REASON_SEPARATOR_PATTERN, '\n');
     processed = processed.replace(DOSE_CLAUSE_SEPARATOR_PATTERN, '\n');
     processed = processed.replace(DOSE_ALTERNATIVE_SEPARATOR_PATTERN, '\n');
+    // A space is kept after the marker (not butted directly against "**")
+    // — marked's emphasis flanking rules can otherwise fail to open bold on
+    // a "**" run sitting immediately after this control character, silently
+    // leaving the literal "**Drug**" unrendered as plain text.
+    processed = processed.replace(FIRST_DRUG_CHOICE_SEPARATOR_PATTERN, `${CHOICE_SPLIT_MARKER} `);
+    processed = processed.replace(MULTI_DRUG_CHOICE_SEPARATOR_PATTERN, `${CHOICE_SPLIT_MARKER} `);
 
     processed = processed.replace(
       PROBABILITY_PATTERN,
@@ -297,7 +366,14 @@ function applyHeadingBadges(root: HTMLElement) {
     // Strip a leading "N." or hierarchical "3a."/"3b." prefix — the backend
     // sometimes numbers sub-sections that way, which the plain \d+\. version
     // of this regex missed entirely, leaving the old prefix sitting next to
-    // our own renumbered badge (e.g. "④ 3a. ยาปฏิชีวนะ").
+    // our own renumbered badge (e.g. "④ 3a. ยาปฏิชีวนะ"). A numbered prefix
+    // marks this as a top-level treatment section ("3a. ยาปฏิชีวนะ", "3b.
+    // ยาตามอาการ"), not a finer drug-category label like "ยาแก้ปวด/ลดไข้" —
+    // remember that before stripping it, since applyDrugCategoryLabels
+    // can't tell the two apart from the stripped text alone (both start
+    // with "ยา") and shouldn't give a whole section its own drug-category
+    // card treatment.
+    const hadSectionNumber = /^\d+[a-zA-Z]?\./.test(text.trim());
     text = text.replace(/^(\d+[a-zA-Z]?)\.\s*/, '').replace(/^[\p{Extended_Pictographic}‍️]+\s*/u, '');
     // The backend sometimes writes these sub-labels as a real "### " heading
     // instead of a bold-only line, which skips the raw-text exclusion above
@@ -308,6 +384,7 @@ function applyHeadingBadges(root: HTMLElement) {
       const strong = document.createElement('strong');
       strong.textContent = text;
       p.appendChild(strong);
+      if (hadSectionNumber) p.classList.add('ai-section-sublabel');
       heading.replaceWith(p);
       return;
     }
@@ -366,6 +443,82 @@ function applyExpertBlocks(root: HTMLElement) {
   });
 }
 
+// The backend writes a drug-category heading as "■ **label**" — a literal
+// glyph character, not real markdown list syntax — so it renders as a plain
+// <p>■ <strong>label</strong></p>, a sibling *before* the <ul> of drug
+// items, not a list item itself. (The drug items below it are a real flat
+// <ul>, all at the same level — no nesting to key off of either.) Tag it by
+// its actual text instead (same "starts with ยา" check the backend's own
+// wording follows — a category label always starts with "ยา", a drug/
+// product name never does), and drop the leading glyph text node since the
+// CSS heading-bar supplies its own visual marker.
+const CATEGORY_LEAD_GLYPH_PATTERN = /^[■▪◾]\s*$/;
+
+function applyDrugCategoryLabels(root: HTMLElement) {
+  const tagIfCategory = (container: HTMLElement, strong: HTMLElement | null) => {
+    if (container.classList.contains('ai-section-sublabel')) return;
+    if (!strong || !TREATMENT_SUBLABEL_PATTERN.test(strong.textContent || '')) return;
+    container.classList.add('ai-drug-category');
+    const lead = container.firstChild;
+    if (lead && lead.nodeType === Node.TEXT_NODE && CATEGORY_LEAD_GLYPH_PATTERN.test(lead.textContent || '')) {
+      container.removeChild(lead);
+    }
+  };
+
+  root.querySelectorAll('p').forEach((p) => {
+    tagIfCategory(p, p.querySelector(':scope > strong:first-child'));
+  });
+  root.querySelectorAll('li').forEach((li) => {
+    tagIfCategory(li, li.querySelector(':scope > strong:first-child, :scope > p:first-child > strong:first-child'));
+  });
+}
+
+// Cuts a rendered <li> into separate sibling <li>s at each CHOICE_SPLIT_MARKER
+// (inserted by FIRST/MULTI_DRUG_CHOICE_SEPARATOR_PATTERN above) — done here,
+// post-parse, so the split works regardless of what inline markup (bold,
+// dose-highlight spans, ref tags, ...) marked produced around it, rather
+// than trying to cut the markdown source itself. Walks the <li>'s direct
+// children, starting a new group every time a text node containing the
+// marker is found (splitting *within* that text node too, since the marker
+// sits in running prose, never inside a nested element).
+function splitDrugChoiceListItems(root: HTMLElement) {
+  root.querySelectorAll('li').forEach((li) => {
+    if (!(li.textContent || '').includes(CHOICE_SPLIT_MARKER)) return;
+    const groups: ChildNode[][] = [[]];
+    li.childNodes.forEach((node) => {
+      if (node.nodeType === Node.TEXT_NODE && (node.textContent || '').includes(CHOICE_SPLIT_MARKER)) {
+        const parts = (node.textContent || '').split(CHOICE_SPLIT_MARKER);
+        parts.forEach((part, i) => {
+          if (i > 0) groups.push([]);
+          if (part) groups[groups.length - 1].push(document.createTextNode(part));
+        });
+      } else {
+        groups[groups.length - 1].push(node);
+      }
+    });
+    // A group with only whitespace/punctuation left over (e.g. a trailing
+    // ", " after the split point was consumed) isn't a real choice — drop it
+    // rather than leaving a stray empty bullet.
+    const realGroups = groups.filter((nodes) => nodes.some((n) => (n.textContent || '').trim()));
+    if (realGroups.length < 2) return;
+    const parent = li.parentNode;
+    if (!parent) return;
+    // The first fragment keeps the lead-in sentence ("กลุ่ม NSAIDs
+    // (ทางเลือก): ใช้กรณี Paracetamol ไม่เพียงพอ เช่น") and reads as the
+    // regular top-level bullet it always was; every fragment after that is
+    // one of the choices split out of it, so those are indented with a
+    // hollow-circle marker to read as sub-choices under that lead-in rather
+    // than more top-level drug entries.
+    realGroups.forEach((nodes, i) => {
+      const newLi = document.createElement('li');
+      if (i > 0) newLi.classList.add('ai-choice-item');
+      nodes.forEach((n) => newLi.appendChild(n));
+      parent.insertBefore(newLi, li);
+    });
+    parent.removeChild(li);
+  });
+}
+
 // Bold lead-in labels like "ข้อซักถามเพิ่มเติมเพื่อความปลอดภัย:" or
 // "หมายเหตุสำคัญ:" get a light-blue tint instead of whatever color they'd
 // otherwise inherit (green section-header, or plain dark text) — set as an
@@ -421,6 +574,11 @@ function applyDiagnosisCard(root: HTMLElement) {
     let lastSibling: Element | null = null;
     while (node && !/^H[1-4]$/.test(node.tagName)) {
       if (!list && /^(UL|OL)$/.test(node.tagName)) list = node;
+      // Already ran once against this heading (StrictMode's double effect
+      // invoke in dev re-runs this on the same, already-mutated DOM) —
+      // the card this same call would produce is already sitting right
+      // here as a later sibling, so stop before appending a second copy.
+      if (node.classList.contains('ai-diagnosis-card')) return;
       lastSibling = node;
       node = node.nextElementSibling;
     }
@@ -514,6 +672,8 @@ export default function MarkdownMessage({ content, onOpenSource, className }: Pr
     if (!el) return;
     applyHeadingBadges(el);
     applyExpertBlocks(el);
+    splitDrugChoiceListItems(el);
+    applyDrugCategoryLabels(el);
     applyNoteHighlights(el);
     applyDiagnosisCard(el);
     applySymptomHighlights(el);

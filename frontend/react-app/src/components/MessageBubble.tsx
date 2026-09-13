@@ -1,5 +1,7 @@
 import type { Message, Source } from '../types';
-import MarkdownMessage from './MarkdownMessage';
+import MarkdownMessage, { hasSymptomaticDrugAdvice } from './MarkdownMessage';
+
+const ASK_STORE_DRUGS_QUESTION = 'อยากรู้ว่ายาภายในร้านมีอะไรบ้าง ช่วยแนะนำหน่อย';
 
 function formatTime(ts?: string): string {
   const d = ts ? new Date(ts) : new Date();
@@ -37,10 +39,11 @@ interface Props {
   onEdit?: () => void;
   onRegenerate?: () => void;
   onCopy?: (text: string) => void;
+  onQuickAsk?: (q: string) => void;
   userInitial?: string;
 }
 
-export default function MessageBubble({ message, onOpenSource, onEdit, onRegenerate, onCopy, userInitial }: Props) {
+export default function MessageBubble({ message, onOpenSource, onEdit, onRegenerate, onCopy, onQuickAsk, userInitial }: Props) {
   const t = formatTime(message.timestamp);
 
   if (message.role === 'user') {
@@ -117,6 +120,25 @@ export default function MessageBubble({ message, onOpenSource, onEdit, onRegener
           <div className="msg-time">{t}</div>
         </div>
       </div>
+      {onQuickAsk && hasSymptomaticDrugAdvice(message.content) && (
+        <div className="ask-store-drugs-row">
+          <button
+            className="ask-store-drugs-chip"
+            onClick={() => onQuickAsk(ASK_STORE_DRUGS_QUESTION)}
+          >
+            <span className="ask-store-drugs-icon">💊</span>
+            <span className="ask-store-drugs-text">
+              <span className="ask-store-drugs-title">อยากรู้ว่ายาภายในร้านมีอะไรบ้างหรือไม่</span>
+              <span className="ask-store-drugs-caption">ผมสามารถแนะนำคุณได้</span>
+            </span>
+            <span className="ask-store-drugs-arrow">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+              </svg>
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

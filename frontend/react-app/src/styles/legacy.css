@@ -388,6 +388,11 @@
             min-width: 0;
             background: #fff;
             position: relative;
+            /* Lets .top-bar-action-label below react to how much room THIS
+               column actually has — not the viewport — since main-area can
+               get very narrow while the viewport stays wide (reference
+               panel + PDF panel both open at once). */
+            container-type: inline-size;
         }
 
         /* PDF Panel */
@@ -617,12 +622,31 @@
             background: #fff;
             position: relative;
             z-index: 1;
+            /* .top-bar-right no longer shrinks (flex: none, below) so its
+               buttons keep their size — but that means when the reference
+               panel AND the PDF panel are both open and there isn't enough
+               width left for everything, it has nowhere to go but to spill
+               out past this header's own right edge, visually overlapping
+               the panel next to it instead of just clipping here. */
+            overflow: hidden;
         }
 
         .top-bar-left {
             display: flex;
             align-items: center;
             gap: 0.75rem;
+            flex: 1;
+            min-width: 0;
+        }
+
+        /* Wraps chat-title + chat-subtitle — needs min-width: 0 too, or a
+           flex child with text content refuses to shrink below its content
+           width no matter what the parent does, which is exactly what let
+           a long title/subtitle overflow into the action buttons on the
+           right (e.g. once the reference/PDF panel narrows this header) */
+        .top-bar-left > .flex.flex-col {
+            min-width: 0;
+            overflow: hidden;
         }
 
         .menu-btn {
@@ -639,17 +663,25 @@
             font-size: 19px;
             font-weight: 700;
             color: #1a2e2a;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .chat-subtitle {
             font-size: 11px;
             color: #8aaba5;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            display: block;
         }
 
         .top-bar-right {
             display: flex;
             align-items: center;
             gap: 16px;
+            flex: none;
         }
 
         .top-bar-user {
@@ -690,6 +722,29 @@
             text-decoration: none;
             cursor: pointer;
             transition: all 0.15s;
+            flex: none;
+        }
+
+        /* Chat header space isn't just a function of the viewport — opening
+           the reference panel and the PDF panel both at once can leave this
+           column only ~250px wide even on a full-size desktop window. Icon
+           + Thai label together simply don't fit every open-panel
+           combination, so drop to icon-only (the title= tooltip still names
+           the action) once this column itself gets tight, rather than
+           either overlapping the panel next to it or need a fixed viewport
+           breakpoint that won't track this. */
+        @container (max-width: 460px) {
+            .top-bar-action-label {
+                display: none;
+            }
+
+            .top-bar-action {
+                padding: 6px 10px;
+            }
+
+            .top-bar-user-name {
+                display: none;
+            }
         }
 
         .top-bar-action-token {
@@ -942,6 +997,8 @@
 
         .msg-row.assistant {
             justify-content: flex-start;
+            flex-direction: column;
+            align-items: flex-start;
         }
 
         .msg-user-col {
@@ -971,6 +1028,8 @@
             font-size: 0.92rem;
             line-height: 1.65;
             position: relative;
+            white-space: pre-wrap;
+            word-wrap: break-word;
             box-shadow: 0 2px 6px rgba(31, 174, 134, 0.25);
         }
 
@@ -1042,6 +1101,95 @@
             color: #1a2e2a;
             line-height: 1.75;
             word-break: break-word;
+        }
+
+        /* "Ask about in-store drugs" follow-up — a standalone suggestion row
+           under the AI bubble (not inside its card), so the pharmacist can
+           ask for brand names without the AI naming them unprompted in the
+           main answer. Kept as its own row (like the diagnosis/expert
+           cards) rather than nested in .ai-content, matching the reference
+           mockup where it floats separately below the chat bubble. */
+        .ask-store-drugs-row {
+            width: 100%;
+            max-width: 74%;
+            margin: 1.1rem auto 0;
+            align-self: center;
+        }
+
+        @keyframes askStoreDrugsGlow {
+            0%, 100% { box-shadow: 0 4px 14px rgba(31, 174, 134, 0.14); }
+            50% { box-shadow: 0 4px 18px rgba(31, 174, 134, 0.24); }
+        }
+
+        .ask-store-drugs-chip {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            width: 100%;
+            padding: 10px 14px;
+            border-radius: 28px;
+            border: 1.5px solid rgba(31, 174, 134, 0.22);
+            background: linear-gradient(135deg, #ffffff 0%, #f2faf7 100%);
+            font-family: inherit;
+            cursor: pointer;
+            animation: askStoreDrugsGlow 2.4s ease-in-out infinite;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+        }
+
+        .ask-store-drugs-chip:hover {
+            border-color: rgba(31, 174, 134, 0.55);
+            transform: translateY(-2px);
+            animation-play-state: paused;
+            box-shadow: 0 8px 22px rgba(31, 174, 134, 0.22);
+        }
+
+        .ask-store-drugs-chip:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 6px rgba(31, 174, 134, 0.16);
+        }
+
+        .ask-store-drugs-icon {
+            flex: none;
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: #dcf3e8;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+
+        .ask-store-drugs-text {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+            text-align: left;
+        }
+
+        .ask-store-drugs-title {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #0f5132;
+        }
+
+        .ask-store-drugs-caption {
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: #5c9c88;
+        }
+
+        .ask-store-drugs-arrow {
+            flex: none;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: #1fae86;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         /* AI message actions */
@@ -1183,7 +1331,7 @@
             gap: 10px;
             background: #f6f8f7;
             border: 1px solid #dce6e1;
-            border-radius: 999px;
+            border-radius: 22px;
             padding: 8px 18px;
             transition: all 0.2s;
         }
@@ -1652,6 +1800,46 @@
         .ai-text li:has(> ul) > p:first-child > strong:first-child,
         .ai-text li:has(> ol) > p:first-child > strong:first-child {
             color: #16805f;
+        }
+
+        /* A drug/product name lead-in also matches the rule above (any bold
+           lead word turns green) — but the drug name substring inside it is
+           separately darkened by .ai-drug-highlight, so the same word ended
+           up half-green half-black. Where a drug-name span is present, drop
+           the green entirely so the whole lead-in reads as one consistent
+           dark bold phrase. */
+        .ai-text strong:first-child:has(.ai-drug-highlight) {
+            color: #111827;
+        }
+
+        /* Drug-category label (e.g. "ยาแก้ปวด/ลดไข้ (Analgesic/Antipyretic)")
+           vs. an actual drug name are flat sibling bullets in the same list,
+           not nested — so they can't be told apart structurally. JS tags the
+           category li's by their text (applyDrugCategoryLabels, same "ยา"
+           check the backend's own wording follows). Kept deliberately plain
+           (no card/bar) — feedback was that the boxed-bar version, on top
+           of the indented choice-bullets below, added too many competing
+           visual styles to one answer. Just dark bold text like everything
+           else, EXCEPT not colored green (that's still the fix for the
+           original complaint: a drug name's own dark-bold span sitting
+           inside a green label read as "half-green half-black"). */
+        .ai-text .ai-drug-category > strong:first-child,
+        .ai-text .ai-drug-category > p:first-child > strong:first-child {
+            color: #1a2e2a;
+        }
+
+        /* A choice split out of a run-on bullet (e.g. "Ibuprofen"/
+           "Diclofenac"/"Naproxen" under "กลุ่ม NSAIDs (ทางเลือก): ... เช่น")
+           reads as an option under that lead-in, not another top-level drug
+           entry — indent it and swap the marker to a hollow circle so it's
+           visually a sub-choice at a glance. */
+        .ai-text > ul > li.ai-choice-item {
+            list-style-type: circle;
+            margin-left: 1.35rem;
+        }
+
+        .ai-text > ul > li.ai-choice-item::marker {
+            color: #1fae86;
         }
 
         .ai-text em {

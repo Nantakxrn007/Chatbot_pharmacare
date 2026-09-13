@@ -465,13 +465,13 @@ export default function ChatPage() {
             {currentSessionId && (
               <button className="top-bar-action top-bar-action-token" onClick={() => setTokenSummaryOpen(true)} title="ค่าใช้จ่ายแชทนี้">
                 <span>🪙</span>
-                สรุป Token
+                <span className="top-bar-action-label">สรุป Token</span>
               </button>
             )}
             {updateDashboardHref && (
               <Link className="top-bar-action top-bar-action-patient" to={updateDashboardHref}>
                 <span>📄</span>
-                ประวัติการรักษา
+                <span className="top-bar-action-label">ประวัติการรักษา</span>
               </Link>
             )}
             <button className="tools-mobile-btn" onClick={() => setToolsPanelMobileOpen(true)} title="เปิดแผงเครื่องมือ">
@@ -515,6 +515,7 @@ export default function ChatPage() {
                   onEdit={editLastMessage}
                   onRegenerate={regenerate}
                   onCopy={copyToClipboard}
+                  onQuickAsk={quickAsk}
                   userInitial={displayName}
                 />
               ))}
