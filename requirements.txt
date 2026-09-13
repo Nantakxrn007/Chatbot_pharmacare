@@ -4,6 +4,8 @@ qdrant-client
 google-generativeai
 python-dotenv
 pypdf
+pdfplumber
+pandas
 pydantic
 numpy
 rank_bm25

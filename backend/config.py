@@ -56,10 +56,11 @@ GUIDELINE_SOURCES: tuple[str, ...] = ("AAFP", "URI", "Dose")
 PDF_FILENAMES: dict[str, str] = {
     "AAFP": "AAFP_2022_Original.pdf",
     "URI": "P2_URI.pdf",
-    "Dose": "Dose supportive.pdf",
+    "Dose": "Dose supportive new.pdf",
 }
 
 DOSE_PDF_NAME = PDF_FILENAMES["Dose"]
+DOSE_PDF = DATA_DIR / DOSE_PDF_NAME
 
 # ─── Models & collections ────────────────────────────────────────────────────
 
