@@ -1,7 +1,8 @@
 import type { Message, Source } from '../types';
-import MarkdownMessage, { hasSymptomaticDrugAdvice } from './MarkdownMessage';
+import MarkdownMessage, { hasSymptomaticDrugAdvice, hasHistoryQuestion } from './MarkdownMessage';
 
 const ASK_STORE_DRUGS_QUESTION = 'อยากรู้ว่ายาภายในร้านมีอะไรบ้าง ช่วยแนะนำหน่อย';
+const NO_MORE_INFO_QUESTION = 'ไม่มีข้อมูลเพิ่มเติมแล้ว ที่เหลือถือว่าไม่ทราบ/ไม่มี ช่วยประเมินและตอบเท่าที่มีข้อมูลได้เลยครับ';
 
 function formatTime(ts?: string): string {
   const d = ts ? new Date(ts) : new Date();
@@ -53,6 +54,12 @@ export default function MessageBubble({ message, onOpenSource, onEdit, onRegener
           <div className="msg-bubble-user">{message.content}</div>
           <div className="msg-time">{t}</div>
           <div className="msg-user-actions">
+            <button className="msg-action-btn" onClick={() => onCopy?.(message.content)}>
+              <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3a2.25 2.25 0 0 0-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
+              </svg>
+              คัดลอก
+            </button>
             <button className="msg-action-btn" onClick={onEdit}>
               <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z" />
@@ -130,6 +137,25 @@ export default function MessageBubble({ message, onOpenSource, onEdit, onRegener
             <span className="ask-store-drugs-text">
               <span className="ask-store-drugs-title">อยากรู้ว่ายาภายในร้านมีอะไรบ้างหรือไม่</span>
               <span className="ask-store-drugs-caption">ผมสามารถแนะนำคุณได้</span>
+            </span>
+            <span className="ask-store-drugs-arrow">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+              </svg>
+            </span>
+          </button>
+        </div>
+      )}
+      {onQuickAsk && hasHistoryQuestion(message.content) && (
+        <div className="ask-store-drugs-row">
+          <button
+            className="ask-store-drugs-chip"
+            onClick={() => onQuickAsk(NO_MORE_INFO_QUESTION)}
+          >
+            <span className="ask-store-drugs-icon">📋</span>
+            <span className="ask-store-drugs-text">
+              <span className="ask-store-drugs-title">ไม่มีข้อมูลเพิ่มเติมแล้ว</span>
+              <span className="ask-store-drugs-caption">ให้ประเมินและตอบเท่าที่มีข้อมูลได้เลย</span>
             </span>
             <span className="ask-store-drugs-arrow">
               <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -283,7 +283,15 @@ def drug_by_name(name: str) -> dict | None:
 # ─── Case features (Thai-negation aware) ─────────────────────────────────────
 
 _NEG_TAIL_RE = re.compile(
-    r"(ไม่มี(?:อาการ|ภาวะ)?|ไม่พบ(?:ว่ามี)?|ไม่ได้|ไม่|ปฏิเสธ|\bno\b|without|denies)\s*$", re.IGNORECASE)
+    r"(ไม่มี(?:อาการ|ภาวะ)?|ไม่พบ(?:ว่ามี)?|ไม่ได้|ไม่|ปฏิเสธ|\bno\b|without|denies)"
+    # A negation can govern a *list* of symptoms joined by "หรือ"/"และ"
+    # ("ไม่มีอาการไอหรือน้ำมูก" = no cough OR runny nose — negates both), not
+    # just the word directly after it. Without this, the match for the
+    # *second* item in the list sees only "...ไอหรือ" immediately before it —
+    # no negation word right there — and gets scored as present instead of
+    # negated (real case: patient states "ไม่มีอาการไอหรือน้ำมูก", app asked a
+    # follow-up about nasal discharge character anyway).
+    r"(?:[ก-๙a-zA-Z]{1,20}(?:หรือ|และ))?\s*$", re.IGNORECASE)
 
 _FEATURE_PATTERNS: dict[str, str] = {
     "fever": r"ไข้(?!หวัด)|fever|\d{2}(?:\.\d)?\s*(?:°|องศา)",
@@ -326,7 +334,12 @@ def _tri(text: str, pattern: str) -> bool | None:
     """True = มีอาการ, False = ระบุว่าไม่มี, None = ไม่ได้กล่าวถึง"""
     pos = neg = False
     for m in re.finditer(pattern, text, re.IGNORECASE):
-        pre = text[max(0, m.start() - 14): m.start()]
+        # 30 chars (not 14) so a negation word governing a "X หรือ Y" list
+        # ("ไม่มีอาการไอหรือน้ำมูก") stays inside the window even for the
+        # second item — 14 chars was cutting the leading "ไม" off "ไม่มี"
+        # for this exact real phrase, in a language with no spaces between
+        # words to shrink the window naturally.
+        pre = text[max(0, m.start() - 30): m.start()]
         if _NEG_TAIL_RE.search(pre):
             neg = True
         else:
@@ -1618,14 +1631,18 @@ def _page_keys() -> list[tuple["re.Pattern", str]]:
     return _PAGE_KEYS
 
 
-def dose_drug_hits(text: str) -> list[tuple[int, str]]:
-    """[(ตำแหน่ง, เลขหน้า Dose)] ของยาที่พบในข้อความ (คีย์ยาวก่อน ไม่ซ้อนทับ) เรียงตามตำแหน่ง"""
+def dose_drug_hits(text: str) -> list[tuple[int, int, str]]:
+    """[(เริ่ม, จบ, เลขหน้า Dose)] ของยาที่พบในข้อความ (คีย์ยาวก่อน ไม่ซ้อนทับ) เรียงตามตำแหน่ง
+
+    คืนตำแหน่งจบ (end) ด้วย -- ไม่ใช่แค่ตำแหน่งเริ่ม -- เพื่อให้ผู้เรียก (_last_drug_hit) รู้ความยาว
+    ของคำที่ตรงแต่ละคำ และเลือกคำที่ "เจาะจงที่สุด" (ยาวสุด) ได้ ไม่ใช่แค่เรียงตามตำแหน่ง
+    """
     taken: list[tuple[int, int]] = []
-    hits: list[tuple[int, str]] = []
+    hits: list[tuple[int, int, str]] = []
     for rx, page in _page_keys():
         for m in rx.finditer(text or ""):
             if any(not (m.end() <= a or m.start() >= b) for a, b in taken):
                 continue
             taken.append((m.start(), m.end()))
-            hits.append((m.start(), page))
+            hits.append((m.start(), m.end(), page))
     return sorted(hits)

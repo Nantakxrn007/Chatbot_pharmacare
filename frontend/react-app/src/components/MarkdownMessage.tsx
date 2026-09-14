@@ -84,11 +84,37 @@ const DOSE_PATTERN =
 // the backend wrote it or whether it numbered the section.
 const BOLD_ONLY_LINE_PATTERN = /^\*\*([^\n*]+)\*\*\s*$/gm;
 
-// A bold-only line like "**คะแนนรวม: 5 คะแนน**" is a result readout, not a
-// section title — it just happens to also be a whole bold line. Skip
-// promoting anything shaped like "label: <number>" so only real headings
-// (no trailing number after a colon) get the numbered-card treatment.
-const SCORE_LINE_PATTERN = /:\s*\d/;
+// A bold-only line like "**คะแนนรวม: 5 คะแนน**" or "**คะแนนรวม = 5**" is a
+// result readout, not a section title — it just happens to also be a whole
+// bold line. Skip promoting anything shaped like "label: <number>" or
+// "label = <number>" so only real headings (no trailing number after a
+// colon/equals) get the numbered-card treatment.
+const SCORE_LINE_PATTERN = /[:=]\s*\d/;
+
+// The Modified Centor/McIsaac score-tool label ("**Modified Centor
+// (McIsaac) Score:**", "**Modified Centor (McIsaac) -- ...**") reads as
+// part of the scoring readout right above its bullet checklist, not its own
+// topic — keep it inline instead of promoting it to a boxed heading card.
+const SCORE_TOOL_LABEL_PATTERN = /Centor|McIsaac/i;
+
+// The backend usually bolds section sub-labels ("**3a. ยาปฏิชีวนะ...**") so
+// BOLD_ONLY_LINE_PATTERN promotes them to a heading — but sometimes writes
+// the exact same line with no bold markup at all ("3a. ยาปฏิชีวนะ
+// (Antibiotics):"), which then falls through as a plain paragraph with no
+// heading badge and no ai-section-sublabel styling. Catch that plain form
+// too, own-line only, so "3a."/"3b." always get promoted the same way
+// regardless of whether the backend happened to bold it this time.
+//
+// The letter suffix (3a/3b, not just "3") is REQUIRED here — the backend
+// sometimes numbers drug categories as a plain ordinal list instead
+// ("1. ยาแก้ปวด/ลดไข้...", "2. ยาพ่นบรรเทาอาการเจ็บคอ...", no letter). Without
+// this restriction that list would get intercepted here (before marked.js
+// ever sees it as a real "1." list marker) and wrongly promoted to a
+// top-level "3a./3b."-style heading with its orange bar, even though it's
+// just an ordinary numbered sub-category one level down — this was the
+// "layout keeps changing between answers" bug: which format wins is purely
+// down to how the backend happened to punctuate the list that generation.
+const PLAIN_NUMBERED_TREATMENT_LABEL_PATTERN = /^(\d+[a-zA-Z]\.\s*ยา[^\n*]{0,80}?:?)[ \t]*$/gm;
 
 // Drug-category sub-labels ("ยาปฏิชีวนะ (Antibiotics):", "ยาตามอาการ
 // (Symptomatic Treatment):", "ยาแก้ปวด (Analgesics):", ...) are always
@@ -102,26 +128,45 @@ const SCORE_LINE_PATTERN = /:\s*\d/;
 // hasn't used yet without needing another patch each time one shows up.
 const TREATMENT_SUBLABEL_PATTERN = /^ยา\S/;
 
-// Detects a symptomatic-drug-category answer (e.g. "- ยาลดน้ำมูก/คัดจมูก:
-// ...", "**ยาแก้ปวด/ลดไข้:** ...") anywhere in the raw markdown, so the chat
-// can offer a "อยากรู้ว่ายาภายในร้านมีอะไรบ้าง" follow-up chip under it. The
-// backend doesn't emit a dedicated marker for this yet, so this reuses the
-// same "line starts with ยา" heuristic as TREATMENT_SUBLABEL_PATTERN instead
-// of waiting on a backend/prompt change.
-const SYMPTOMATIC_ADVICE_LINE_PATTERN = /(?:^|\n)\s*(?:[-*]\s*)?\*{0,2}ยา[^\n*:：]{0,40}[:：]/;
+// Detects the *deferred* symptomatic-drug-category answer (category names
+// only, no doses yet), so the chat can offer a "อยากรู้ว่ายาภายในร้านมีอะไร
+// บ้าง" follow-up chip under it — and only under that answer, not under the
+// detailed one the chip itself leads to.
+//
+// A bare "ยาแก้ปวด/ลดไข้ (Analgesic/Antipyretic)" category-header line shows
+// up in BOTH answers — the deferred one (nothing follows it but the next
+// category) and the detailed follow-up (the same header, now followed by
+// named drugs + doses) — so matching on that header alone used to fire the
+// chip again under the follow-up it had just produced. The one line that's
+// exclusive to the deferred answer is its mandatory closing invite sentence
+// (backend is instructed to always end with this, and never once actual
+// drug names/doses are already given), so match on that instead of trying
+// to tell the two header shapes apart. The backend doesn't reproduce that
+// sentence verbatim every time ("...คือตัวไหนบ้าง พร้อมขนาดยา สามารถถามต่อ
+// ได้เลยครับ" vs "...ชื่อยาที่มีในร้าน พร้อมขนาดยาตามน้ำหนักตัว สามารถถามต่อ
+// ได้เลยครับ") — anchor on the phrase common to every variant seen so far
+// instead of the exact wording in between.
+const SYMPTOMATIC_INVITE_LINE_PATTERN = /ยาที่มีในร้าน[^\n]{0,60}สามารถถามต่อได้/;
 
-// Per the team's actual design for this popup (confirmed in chat: the first
-// answer should only name the *symptomatic drug group* per guideline, with
-// dose/specific-drug lookup deferred to this popup being clicked) — the
-// popup is meant to show whenever a symptomatic-drug-category answer
-// appears, full stop. It doesn't try to detect whether the backend already
-// leaked a specific drug name into that first answer (an earlier version of
-// this function did, to avoid an apparently-redundant popup) — if that's
-// happening, the popup showing anyway is the visible signal that the
-// backend isn't yet deferring dose lookup the way the team agreed, which is
-// more useful than silently hiding it.
 export function hasSymptomaticDrugAdvice(content: string): boolean {
-  return SYMPTOMATIC_ADVICE_LINE_PATTERN.test(content || '');
+  const text = content || '';
+  return SYMPTOMATIC_INVITE_LINE_PATTERN.test(text);
+}
+
+// Detects a history-taking answer (AI asking for missing info before it'll
+// commit to a diagnosis/treatment plan), so the chat can offer a one-click
+// "ไม่มีข้อมูลเพิ่มเติมแล้ว ตอบได้เลย" chip instead of making the pharmacist
+// type that out by hand every time they don't have (or don't want to look
+// up) the item being asked about. Matches both wordings the backend uses:
+// the deterministic gate's fixed heading ("ข้อมูลที่ต้องซักเพิ่มเติมก่อนสรุป
+// การรักษา", from symptomatic_gateway.py's ASK_HEADING constant) and the
+// free-text variant the LLM writes when it answers in full but still flags
+// gaps ("ข้อมูลที่ควรซักเพิ่มเติม", from rag_engine.py's SYSTEM_PROMPT).
+const HISTORY_QUESTION_PATTERN = /ข้อมูลที่(?:ต้อง|ควร)ซักเพิ่มเติม/;
+
+export function hasHistoryQuestion(content: string): boolean {
+  const text = content || '';
+  return HISTORY_QUESTION_PATTERN.test(text);
 }
 
 // A bullet's "main point -- เหตุผล: ..." reasoning clause reads as one run-on
@@ -209,7 +254,12 @@ const CAUTION_PATTERN = /ข้อควรระวัง(?=\s*:)/g;
 // answer red and buried the ones that actually mattered. Only highlight it
 // right before an action verb ("ห้ามใช้", "ห้ามให้", "ห้ามจ่าย", ...), which
 // is what an actual prohibition reads like.
-const PROHIBIT_PATTERN = /ห้าม(?=ใช้|ให้|จ่าย|กิน|รับประทาน|เริ่ม)/g;
+//
+// But that alone still fires on "ไม่มีข้อห้ามใช้" ("has no contraindication
+// for use" — reassuring, the opposite of a warning) since "ห้ามใช้" is a
+// literal substring of "ข้อห้ามใช้" — exclude it when directly preceded by a
+// negation ("ไม่มีข้อ...", "ไม่มี...", "ไม่ห้าม...").
+const PROHIBIT_PATTERN = /(?<!ไม่มีข้อ)(?<!ไม่มี)(?<!ไม่)ห้าม(?=ใช้|ให้|จ่าย|กิน|รับประทาน|เริ่ม)/g;
 
 // The backend tags the opening case-classification line with an internal
 // category number ("เคสผู้ป่วยใหม่ (ประเภท 2)") — meaningful to us, not to
@@ -250,11 +300,26 @@ function renderMd(text: string): string {
   try {
     let processed = text.replace(CASE_TYPE_LABEL_PATTERN, '');
     processed = processed.replace(BOLD_ONLY_LINE_PATTERN, (match, inner: string) =>
-      SCORE_LINE_PATTERN.test(inner) || TREATMENT_SUBLABEL_PATTERN.test(inner) ? match : `### ${inner}`
+      SCORE_LINE_PATTERN.test(inner) || TREATMENT_SUBLABEL_PATTERN.test(inner) || SCORE_TOOL_LABEL_PATTERN.test(inner)
+        ? match
+        : `### ${inner}`
     );
-    processed = processed.replace(REASON_SEPARATOR_PATTERN, '\n');
-    processed = processed.replace(DOSE_CLAUSE_SEPARATOR_PATTERN, '\n');
-    processed = processed.replace(DOSE_ALTERNATIVE_SEPARATOR_PATTERN, '\n');
+    processed = processed.replace(PLAIN_NUMBERED_TREATMENT_LABEL_PATTERN, (match, inner: string) =>
+      `### ${inner}`
+    );
+    // Use a literal "<br>" here, not "\n" — these three patterns can fire
+    // *inside* a deeply-nested list item's continuation text (e.g. a
+    // "ขนาด: ..." sub-bullet, itself nested under a drug under a category).
+    // A raw "\n" has no indentation, so CommonMark's list-continuation rule
+    // sees a dedented line and ends the list right there — the rest of the
+    // answer (every drug after that point) then falls out of the list
+    // entirely, rendering as plain paragraphs with literal "*" characters
+    // instead of bullets. "<br>" is inline raw HTML, passed through by
+    // marked without ever touching block-level list parsing, so it can't
+    // break list nesting no matter how deep the match sits.
+    processed = processed.replace(REASON_SEPARATOR_PATTERN, '<br>');
+    processed = processed.replace(DOSE_CLAUSE_SEPARATOR_PATTERN, '<br>');
+    processed = processed.replace(DOSE_ALTERNATIVE_SEPARATOR_PATTERN, '<br>');
     // A space is kept after the marker (not butted directly against "**")
     // — marked's emphasis flanking rules can otherwise fail to open bold on
     // a "**" run sitting immediately after this control character, silently
@@ -367,14 +432,26 @@ function applyHeadingBadges(root: HTMLElement) {
     // sometimes numbers sub-sections that way, which the plain \d+\. version
     // of this regex missed entirely, leaving the old prefix sitting next to
     // our own renumbered badge (e.g. "④ 3a. ยาปฏิชีวนะ"). A numbered prefix
-    // marks this as a top-level treatment section ("3a. ยาปฏิชีวนะ", "3b.
-    // ยาตามอาการ"), not a finer drug-category label like "ยาแก้ปวด/ลดไข้" —
+    // *with a letter* ("3a.", "3b.") marks this as a top-level treatment
+    // section, not a finer drug-category label like "ยาแก้ปวด/ลดไข้" —
     // remember that before stripping it, since applyDrugCategoryLabels
     // can't tell the two apart from the stripped text alone (both start
     // with "ยา") and shouldn't give a whole section its own drug-category
-    // card treatment.
-    const hadSectionNumber = /^\d+[a-zA-Z]?\./.test(text.trim());
-    text = text.replace(/^(\d+[a-zA-Z]?)\.\s*/, '').replace(/^[\p{Extended_Pictographic}‍️]+\s*/u, '');
+    // card treatment. The letter is required: a *bare* digit ("1. ยาแก้ปวด
+    // /ลดไข้...", "2. ยาพ่นบรรเทาอาการ...") is the backend numbering ordinary
+    // drug-category items as a plain list, not a "3a./3b." section — treating
+    // that as a section too gave it the wrong (orange, top-level) styling.
+    const hadSectionNumber = /^\d+[a-zA-Z]\./.test(text.trim());
+    text = text
+      .replace(/^(\d+[a-zA-Z]?)\.\s*/, '')
+      .replace(/^[\p{Extended_Pictographic}‍️]+\s*/u, '')
+      // The backend sometimes writes the category glyph ("■ ยาแก้ปวด...")
+      // as a literal "### " heading instead of a plain paragraph — "■" isn't
+      // an Extended_Pictographic emoji so the strip above leaves it sitting
+      // in front of "ยา", which fails the TREATMENT_SUBLABEL_PATTERN test
+      // below and lets the whole thing fall through to a real heading (pin
+      // badge + boxed card) instead of the plain drug-category bullet.
+      .replace(/^[■▪◾]\s*/, '');
     // The backend sometimes writes these sub-labels as a real "### " heading
     // instead of a bold-only line, which skips the raw-text exclusion above
     // entirely — catch it here too so it demotes to inline bold regardless
@@ -397,6 +474,33 @@ function applyHeadingBadges(root: HTMLElement) {
     }
     const emoji = pickHeadingEmoji(text);
     heading.innerHTML = `<span class="ai-heading-emoji">${emoji}</span><span>${escapeHtml(text)}</span>`;
+  });
+}
+
+// Wraps a treatment section-sublabel ("3a. ยาปฏิชีวนะ...", "3b.
+// ยาตามอาการ...") and everything under it — Guideline text, Expert Opinion
+// block, dose table — up to the next heading or the next section-sublabel,
+// into one indented block. Without this, only the label itself (and its
+// orange bar) sit next to the bar; the body text underneath stayed flush
+// with the rest of the answer, reading as less nested than it actually is
+// under "3. การรักษาด้วยยา".
+function applySectionSublabelIndent(root: HTMLElement) {
+  root.querySelectorAll('p.ai-section-sublabel').forEach((label) => {
+    if (label.closest('.ai-section-block')) return;
+    const parent = label.parentNode;
+    if (!parent) return;
+
+    const block = document.createElement('div');
+    block.className = 'ai-section-block';
+    parent.insertBefore(block, label);
+    block.appendChild(label);
+
+    let node = block.nextElementSibling;
+    while (node && !/^H[1-4]$/.test(node.tagName) && !node.classList.contains('ai-section-sublabel')) {
+      const next = node.nextElementSibling;
+      block.appendChild(node);
+      node = next;
+    }
   });
 }
 
@@ -466,6 +570,15 @@ function applyDrugCategoryLabels(root: HTMLElement) {
   };
 
   root.querySelectorAll('p').forEach((p) => {
+    // A "loose" list (one with a blank line between items — common once a
+    // category has its own sub-list of drugs under it) makes marked wrap
+    // each <li>'s own text in a <p>, so this same paragraph is *also* the
+    // first child of an <li> that the loop below will tag. Tagging both
+    // gave the <li> its native bullet *and* this inner <p> its own "•"
+    // pseudo-element — two dots stacked in front of one label. The <li>
+    // loop already reaches this label's text via the "> p:first-child >
+    // strong" fallback, so skip it here and let that be the only tag.
+    if (p.parentElement?.tagName === 'LI' && p.parentElement.firstElementChild === p) return;
     tagIfCategory(p, p.querySelector(':scope > strong:first-child'));
   });
   root.querySelectorAll('li').forEach((li) => {
@@ -672,6 +785,7 @@ export default function MarkdownMessage({ content, onOpenSource, className }: Pr
     if (!el) return;
     applyHeadingBadges(el);
     applyExpertBlocks(el);
+    applySectionSublabelIndent(el);
     splitDrugChoiceListItems(el);
     applyDrugCategoryLabels(el);
     applyNoteHighlights(el);

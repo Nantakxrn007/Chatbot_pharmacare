@@ -18,6 +18,16 @@ import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
+// pdf.js draws each page as pixels on <canvas> — there is no text in the DOM
+// at all, so the browser's own Ctrl+F has nothing to search. This overlays a
+// transparent "text layer" (invisible positioned <span>s matching the real
+// text, one per page) on top of each canvas — standard pdf.js technique, the
+// same one its own default viewer uses. It's purely additive: it never
+// touches which page is measured/rendered/jumped to, so reference-jump
+// accuracy (the whole reason this viewer renders its own pages instead of an
+// <iframe>) is unaffected.
+type TextLayerInstance = InstanceType<typeof pdfjs.TextLayer>;
+
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
 // ระยะห่างระหว่างหน้า (px ที่ scale 1) -- ใช้คำนวณตำแหน่ง scroll ของแต่ละหน้า
@@ -67,6 +77,10 @@ export default function PdfView({ url, page, jumpKey, onPageChange }: Props) {
   const tasksRef = useRef(new Map<number, ReturnType<pdfjs.PDFPageProxy['render']>>());
   // page -> ค่า q (ตัวคูณความละเอียด) ที่วาดไว้ -> รู้ว่าต้องวาดใหม่ให้คมขึ้นเมื่อไร
   const drawnRef = useRef(new Map<number, number>());
+  // page -> text layer instance ที่กำลังแสดงอยู่ -> ใช้ cancel()/ถอดทิ้งตอนเลื่อนพ้นระยะ
+  const textLayerObjsRef = useRef(new Map<number, TextLayerInstance>());
+  // page ที่มี text layer วาดแล้ว ณ ขนาดปัจจุบัน (เคลียร์ทิ้งเมื่อ zoom/resize เพื่อวาดใหม่ให้ตรงขนาด)
+  const textDrawnRef = useRef(new Set<number>());
   // ขนาดหน้าที่ scale 1 ของทุกหน้า -- อ่านครั้งเดียวตอนโหลดเอกสาร
   // (เดิมเรียก getPage() ทุกหน้าใหม่ทุกครั้งที่เปิด/ปรับความกว้าง ทำให้ URI 72 หน้าช้ามาก)
   const baseRef = useRef<{ w: number; h: number }[]>([]);
@@ -89,6 +103,9 @@ export default function PdfView({ url, page, jumpKey, onPageChange }: Props) {
     setLoading(true);
     setError(null);
     drawnRef.current.clear();
+    textLayerObjsRef.current.forEach((tl) => tl.cancel());
+    textLayerObjsRef.current.clear();
+    textDrawnRef.current.clear();
     const task = pdfjs.getDocument({ url, disableAutoFetch: false });
     task.promise.then(
       (doc) => {
@@ -145,6 +162,11 @@ export default function PdfView({ url, page, jumpKey, onPageChange }: Props) {
     }
     setBoxes(out);
     drawnRef.current.clear();
+    // ขนาดหน้าเปลี่ยน -> ตำแหน่ง text layer เดิม (คำนวณจากขนาดก่อนหน้า) ใช้ไม่ได้แล้ว
+    // ล้างทิ้งให้ drawVisible วาดใหม่ด้วย viewport ปัจจุบัน
+    textLayerObjsRef.current.forEach((tl) => tl.cancel());
+    textLayerObjsRef.current.clear();
+    textDrawnRef.current.clear();
   }, [fitWidth, scale]);
 
   useEffect(() => {
@@ -190,7 +212,45 @@ export default function PdfView({ url, page, jumpKey, onPageChange }: Props) {
           canvas.width = 0;
           canvas.height = 0;
         }
+        if (textDrawnRef.current.has(n)) {
+          textLayerObjsRef.current.get(n)?.cancel();
+          textLayerObjsRef.current.delete(n);
+          textDrawnRef.current.delete(n);
+          const div = wrap.querySelector<HTMLDivElement>(`.pdfv-textlayer[data-page="${n}"]`);
+          if (div) div.replaceChildren();
+        }
         continue;
+      }
+      // Text layer: วาดครั้งเดียวต่อขนาดหน้าปัจจุบัน (ไม่ต้องคมขึ้นตาม q แบบ canvas
+      // เพราะเป็นข้อความจริง ไม่ใช่ pixel) -- ใช้ scale เดียวกับที่ canvas แสดงผลจริง
+      // (css = b.width / base.width) ให้ตำแหน่งซ้อนทับกับตัวอักษรบน canvas พอดี
+      if (!textDrawnRef.current.has(n)) {
+        const textDiv = wrap.querySelector<HTMLDivElement>(`.pdfv-textlayer[data-page="${n}"]`);
+        if (textDiv) {
+          textDrawnRef.current.add(n);
+          void (async () => {
+            const p = await doc.getPage(n);
+            const base = p.getViewport({ scale: 1 });
+            const css = b.width / base.width;
+            const viewport = p.getViewport({ scale: css });
+            textDiv.replaceChildren();
+            textDiv.style.setProperty('--scale-factor', String(css));
+            textDiv.style.width = `${viewport.width}px`;
+            textDiv.style.height = `${viewport.height}px`;
+            const tl = new pdfjs.TextLayer({
+              textContentSource: p.streamTextContent(),
+              container: textDiv,
+              viewport,
+            });
+            textLayerObjsRef.current.set(n, tl);
+            try {
+              await tl.render();
+            } catch {
+              // ยกเลิกเพราะเลื่อนผ่านไปแล้ว -> ให้วาดใหม่รอบหน้าได้
+              textDrawnRef.current.delete(n);
+            }
+          })();
+        }
       }
       // ขยายให้คมสุดเท่าที่ canvas รับได้ (จำกัดทั้งด้านและพื้นที่รวม)
       let q = (inView ? SUPERSAMPLE : SUPERSAMPLE_NEAR) * dpr;
@@ -328,6 +388,7 @@ export default function PdfView({ url, page, jumpKey, onPageChange }: Props) {
               style={{ top: b.top, width: b.width, height: b.height }}
             >
               <canvas data-page={i + 1} style={{ width: b.width, height: b.height }} />
+              <div className="pdfv-textlayer textLayer" data-page={i + 1} />
               <span className="pdfv-num">{i + 1}</span>
             </div>
           ))}

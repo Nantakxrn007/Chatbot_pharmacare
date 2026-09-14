@@ -576,6 +576,43 @@
             display: block;
         }
 
+        /* Invisible text overlay on top of the canvas — lets the browser's
+           own Ctrl+F find text inside the PDF (the canvas itself is just
+           pixels, nothing for the browser to search). Minimal version of
+           pdf.js's own .textLayer rules: https://github.com/mozilla/pdf.js */
+        .pdfv-textlayer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            text-align: initial;
+            overflow: hidden;
+            line-height: 1;
+            forced-color-adjust: none;
+            transform-origin: 0 0;
+            z-index: 1;
+        }
+
+        .pdfv-textlayer span,
+        .pdfv-textlayer br {
+            color: transparent;
+            position: absolute;
+            white-space: pre;
+            cursor: text;
+            transform-origin: 0% 0%;
+        }
+
+        .pdfv-textlayer ::selection {
+            background: rgba(37, 99, 235, 0.25);
+        }
+
+        .pdfv-textlayer .endOfContent {
+            display: block;
+            position: absolute;
+            inset: 100% 0 0;
+            cursor: default;
+            user-select: none;
+        }
+
         .pdfv-num {
             position: absolute;
             right: 4px;
@@ -1003,6 +1040,7 @@
 
         .msg-user-col {
             max-width: 62%;
+            position: relative;
         }
 
         .msg-user-avatar {
@@ -1033,17 +1071,26 @@
             box-shadow: 0 2px 6px rgba(31, 174, 134, 0.25);
         }
 
+        /* In normal flow right under the bubble (not position:absolute) so
+           there's no gap between the bubble and the buttons — an absolute
+           + bottom:-28px version left a dead zone the mouse had to cross,
+           which dropped :hover before the buttons were reachable. Space is
+           always reserved (opacity toggles, not display) so hovering never
+           shifts the row height. */
         .msg-user-actions {
-            display: none;
-            position: absolute;
-            bottom: -28px;
-            right: 0;
+            display: flex;
+            justify-content: flex-end;
             gap: 4px;
+            margin-top: 4px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.12s ease;
         }
 
         .msg-row.user:last-of-type .msg-user-actions,
         .msg-row.user:hover .msg-user-actions {
-            display: flex;
+            opacity: 1;
+            pointer-events: auto;
         }
 
         .msg-action-btn {
@@ -1816,16 +1863,61 @@
            vs. an actual drug name are flat sibling bullets in the same list,
            not nested — so they can't be told apart structurally. JS tags the
            category li's by their text (applyDrugCategoryLabels, same "ยา"
-           check the backend's own wording follows). Kept deliberately plain
-           (no card/bar) — feedback was that the boxed-bar version, on top
-           of the indented choice-bullets below, added too many competing
-           visual styles to one answer. Just dark bold text like everything
-           else, EXCEPT not colored green (that's still the fix for the
-           original complaint: a drug name's own dark-bold span sitting
-           inside a green label read as "half-green half-black"). */
+           check the backend's own wording follows). Plain bullet marker (no
+           bar/card) so it reads as a regular list item, just like a normal
+           bullet list — matching the reference layout. */
         .ai-text .ai-drug-category > strong:first-child,
         .ai-text .ai-drug-category > p:first-child > strong:first-child {
             color: #1a2e2a;
+        }
+
+        .ai-text p.ai-drug-category {
+            position: relative;
+            margin: 0.9rem 0 0.4rem;
+            padding-left: 1.1rem;
+        }
+
+        .ai-text p.ai-drug-category::before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: #1fae86;
+            font-weight: 700;
+        }
+
+        /* The drug list right under a category label reads as nested under
+           it (per the reference layout) — indent it further than a regular
+           top-level bullet list so it visually sits "inside" that category,
+           not just another flat list at the same level as the label. */
+        .ai-text .ai-drug-category + ul {
+            margin-left: 2.2rem;
+        }
+
+        /* Top-level treatment section header ("3a. ยาปฏิชีวนะ", "3b. ยาตามอาการ")
+           — a left orange bar to separate it from the drug-category labels
+           and choice bullets underneath, matching the reference mockup. */
+        .ai-text .ai-section-block {
+            margin-left: 1.5rem;
+        }
+
+        /* ...but the orange bar itself stays flush against the page's left
+           edge, not indented with the rest of the block — only the body
+           underneath it (Guideline text, Expert Opinion, dose table) should
+           read as nested one tab in. */
+        .ai-text .ai-section-block > p.ai-section-sublabel {
+            margin-left: -1.5rem;
+        }
+
+        .ai-text p.ai-section-sublabel {
+            border-left: 4px solid #f97316;
+            padding: 0.15rem 0 0.15rem 0.7rem;
+            margin-top: 1.15rem;
+            margin-bottom: 0.8rem;
+        }
+
+        .ai-text p.ai-section-sublabel > strong {
+            color: #1a2e2a;
+            font-size: 1.02em;
         }
 
         /* A choice split out of a run-on bullet (e.g. "Ibuprofen"/
