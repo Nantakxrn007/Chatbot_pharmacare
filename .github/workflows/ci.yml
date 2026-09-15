@@ -1,0 +1,507 @@
+name: CI
+
+# Continuous Integration only — no deployment step here on purpose.
+# Pushing/triggering this workflow is left to the repo owner.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────
+  # Unit Test — backend (pure logic: auth hashing/JWT, session CRUD against a
+  # throwaway sqlite file). No network calls, no Qdrant, no Gemini.
+  # ────────────────────────────────────────────────────────────────────────
+  backend-unit-tests:
+    name: Unit Tests / Backend (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt pytest
+
+      - name: Run repo unit tests (if any exist yet)
+        run: |
+          if find backend -type f \( -name 'test_*.py' -o -name '*_test.py' \) 2>/dev/null | grep -q .; then
+            pytest backend -q
+          else
+            echo "No backend/test_*.py files yet — running the built-in smoke unit tests below instead."
+          fi
+
+      - name: Built-in unit tests (auth + session_manager — no network, no vector store)
+        run: |
+          python3 -c "import sys, textwrap; open('$RUNNER_TEMP/test_backend_units.py', 'w').write(textwrap.dedent(sys.stdin.read()))" << 'PYEOF'
+          import os
+          import sys
+          import tempfile
+
+          sys.path.insert(0, os.environ["GITHUB_WORKSPACE"])
+
+          from backend.auth import (
+              create_token,
+              hash_password,
+              verify_credentials,
+              verify_password,
+              verify_token,
+          )
+
+
+          def test_password_hash_roundtrip():
+              hashed = hash_password("s3cret!")
+              assert verify_password("s3cret!", hashed)
+              assert not verify_password("wrong-password", hashed)
+
+
+          def test_jwt_roundtrip():
+              token = create_token("alice")
+              assert verify_token(token) == "alice"
+
+
+          def test_jwt_rejects_tampered_token():
+              token = create_token("alice")
+              tampered = token[:-1] + ("A" if token[-1] != "A" else "B")
+              assert verify_token(tampered) is None
+
+
+          def test_jwt_rejects_garbage():
+              assert verify_token("not.a.jwt") is None
+
+
+          def test_default_admin_credentials_from_repo_fixture():
+              # rag/data/users.json is committed as a fixture (backend/config.py::USERS_FILE).
+              assert verify_credentials("admin", "123")
+              assert not verify_credentials("admin", "wrong-password")
+
+
+          def test_session_manager_crud():
+              from backend.session_manager import SessionManager
+
+              with tempfile.TemporaryDirectory() as tmp:
+                  db_path = os.path.join(tmp, "ci_chat_history.db")
+                  mgr = SessionManager(db_path=db_path)
+
+                  session = mgr.create_session("ci-user", title="CI session", patient_name="CI Patient")
+                  assert session["id"]
+
+                  msg = mgr.add_message(session["id"], "ci-user", "user", "hello")
+                  assert msg["content"] == "hello"
+                  assert mgr.get_message_count(session["id"]) == 1
+
+                  fetched = mgr.get_session(session["id"], "ci-user")
+                  assert fetched is not None and fetched["id"] == session["id"]
+
+                  assert mgr.rename_session(session["id"], "ci-user", "Renamed")
+                  assert mgr.get_session(session["id"], "ci-user")["title"] == "Renamed"
+
+                  assert mgr.delete_session(session["id"], "ci-user")
+                  assert mgr.get_session(session["id"], "ci-user") is None
+          PYEOF
+          pytest "$RUNNER_TEMP/test_backend_units.py" -q
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Unit Test — frontend. Runs the repo's own "test" script once one exists;
+  # until then, TypeScript's own compiler is the correctness gate.
+  # ────────────────────────────────────────────────────────────────────────
+  frontend-unit-tests:
+    name: Unit Tests / Frontend (TypeScript)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/react-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/react-app/package-lock.json
+
+      - run: npm ci
+
+      - name: Run "test" script if configured, else type-check as the gate
+        run: |
+          if npm run | grep -qE '^  test$'; then
+            npm test
+          else
+            echo 'No "test" script in package.json yet — running `tsc -b --noEmit` as the unit gate instead.'
+            npx tsc -b --noEmit
+          fi
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Integration Test — boots the real FastAPI app in-process and exercises
+  # auth + SessionManager + sqlite together. Runs against the checked-out
+  # copy of rag/data (ephemeral runner disk only — nothing is ever pushed
+  # back, so this never touches the real chat_history.db/users.json).
+  # ────────────────────────────────────────────────────────────────────────
+  integration-tests:
+    name: Integration Tests (auth + sessions + sqlite)
+    runs-on: ubuntu-latest
+    needs: backend-unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - run: pip install -r requirements.txt httpx pytest
+
+      - name: Start API server
+        run: |
+          nohup python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 \
+            > "$RUNNER_TEMP/uvicorn_integration.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/uvicorn_integration.pid"
+
+      - name: Wait for server to become healthy
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/api/health > /dev/null; then
+              echo "Server is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Server did not become healthy in time"
+          cat "$RUNNER_TEMP/uvicorn_integration.log"
+          exit 1
+
+      - name: Run integration flow (login -> create session -> rename -> patients -> delete)
+        run: |
+          python3 -c "import sys, textwrap; open('$RUNNER_TEMP/test_integration.py', 'w').write(textwrap.dedent(sys.stdin.read()))" << 'PYEOF'
+          import httpx
+
+          BASE = "http://127.0.0.1:8000"
+
+
+          def auth_headers():
+              r = httpx.post(f"{BASE}/api/login", json={"username": "admin", "password": "123"})
+              assert r.status_code == 200, r.text
+              return {"Authorization": f"Bearer {r.json()['token']}"}
+
+
+          def test_login_and_me():
+              headers = auth_headers()
+              r = httpx.get(f"{BASE}/api/me", headers=headers)
+              assert r.status_code == 200
+              assert r.json()["username"] == "admin"
+
+
+          def test_session_lifecycle():
+              headers = auth_headers()
+
+              r = httpx.post(f"{BASE}/api/sessions", json={"patient_name": "CI Integration Patient"}, headers=headers)
+              assert r.status_code == 200, r.text
+              session_id = r.json()["id"]
+
+              r = httpx.get(f"{BASE}/api/sessions", headers=headers)
+              assert r.status_code == 200
+              assert any(s["id"] == session_id for s in r.json())
+
+              r = httpx.patch(f"{BASE}/api/sessions/{session_id}", json={"title": "CI Renamed"}, headers=headers)
+              assert r.status_code == 200
+
+              r = httpx.get(f"{BASE}/api/patients", headers=headers)
+              assert r.status_code == 200
+              assert any(p["patient_name"] == "CI Integration Patient" for p in r.json())
+
+              r = httpx.delete(f"{BASE}/api/sessions/{session_id}", headers=headers)
+              assert r.status_code == 200
+
+              r = httpx.get(f"{BASE}/api/sessions/{session_id}", headers=headers)
+              assert r.status_code == 404
+          PYEOF
+          pytest "$RUNNER_TEMP/test_integration.py" -q
+
+      - name: Stop server
+        if: always()
+        run: kill "$(cat "$RUNNER_TEMP/uvicorn_integration.pid")" 2>/dev/null || true
+
+  # ────────────────────────────────────────────────────────────────────────
+  # API / Endpoint Test — contract-level checks: response shape, auth
+  # enforcement on protected routes, and error status codes.
+  # ────────────────────────────────────────────────────────────────────────
+  api-tests:
+    name: API / Endpoint Tests (contract + auth + error cases)
+    runs-on: ubuntu-latest
+    needs: backend-unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - run: pip install -r requirements.txt httpx pytest
+
+      - name: Start API server
+        run: |
+          nohup python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 \
+            > "$RUNNER_TEMP/uvicorn_api.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/uvicorn_api.pid"
+
+      - name: Wait for server to become healthy
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/api/health > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/uvicorn_api.log"
+          exit 1
+
+      - name: Run API contract tests
+        run: |
+          python3 -c "import sys, textwrap; open('$RUNNER_TEMP/test_api.py', 'w').write(textwrap.dedent(sys.stdin.read()))" << 'PYEOF'
+          import httpx
+
+          BASE = "http://127.0.0.1:8000"
+
+
+          def test_health_shape():
+              r = httpx.get(f"{BASE}/api/health")
+              assert r.status_code == 200
+              body = r.json()
+              assert body["status"] == "ok"
+              assert "service" in body and "version" in body
+
+
+          def test_root_page_served_or_frontend_not_built():
+              # This job doesn't build the React app — 503 with the "run npm run build"
+              # hint is the expected, correct response in that case (see e2e job for
+              # the case where the built frontend actually needs to be served).
+              r = httpx.get(f"{BASE}/")
+              assert r.status_code in (200, 503)
+
+
+          def test_protected_endpoints_reject_missing_token():
+              for path in ["/api/me", "/api/sessions", "/api/patients", "/api/drugs", "/api/testcases"]:
+                  r = httpx.get(f"{BASE}{path}")
+                  assert r.status_code == 401, f"{path} should require auth, got {r.status_code}"
+
+
+          def test_protected_endpoints_reject_bad_token():
+              headers = {"Authorization": "Bearer not-a-real-token"}
+              r = httpx.get(f"{BASE}/api/me", headers=headers)
+              assert r.status_code == 401
+
+
+          def test_login_rejects_wrong_password():
+              r = httpx.post(f"{BASE}/api/login", json={"username": "admin", "password": "wrong"})
+              assert r.status_code == 401
+
+
+          def test_login_and_fixture_endpoints():
+              r = httpx.post(f"{BASE}/api/login", json={"username": "admin", "password": "123"})
+              assert r.status_code == 200
+              headers = {"Authorization": f"Bearer {r.json()['token']}"}
+
+              r = httpx.get(f"{BASE}/api/drugs", headers=headers)
+              assert r.status_code == 200
+              assert isinstance(r.json(), list)
+
+              r = httpx.get(f"{BASE}/api/testcases", headers=headers)
+              assert r.status_code == 200
+              assert isinstance(r.json(), list)
+
+
+          def test_unknown_session_is_404():
+              r = httpx.post(f"{BASE}/api/login", json={"username": "admin", "password": "123"})
+              headers = {"Authorization": f"Bearer {r.json()['token']}"}
+              r = httpx.get(f"{BASE}/api/sessions/does-not-exist", headers=headers)
+              assert r.status_code == 404
+          PYEOF
+          pytest "$RUNNER_TEMP/test_api.py" -q
+
+      - name: Stop server
+        if: always()
+        run: kill "$(cat "$RUNNER_TEMP/uvicorn_api.pid")" 2>/dev/null || true
+
+  # ────────────────────────────────────────────────────────────────────────
+  # End-to-End Test — small sample, kept deliberately low-latency:
+  #   1) build the real frontend and serve it from the real backend
+  #   2) confirm the app shell + login work end-to-end
+  #   3) ONE live RAG chat request — only when GOOGLE_API_KEY / QDRANT_URL /
+  #      QDRANT_API_KEY secrets are configured; otherwise this step is
+  #      skipped (not failed) so the rest of E2E still runs for everyone.
+  # ────────────────────────────────────────────────────────────────────────
+  e2e-tests:
+    name: E2E Tests (small sample)
+    runs-on: ubuntu-latest
+    needs: [frontend-unit-tests, integration-tests]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/react-app/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend/react-app
+        run: |
+          npm ci
+          npm run build
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - run: pip install -r requirements.txt httpx pytest
+
+      - name: Start full server (backend + built frontend)
+        run: |
+          nohup python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 \
+            > "$RUNNER_TEMP/uvicorn_e2e.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/uvicorn_e2e.pid"
+
+      - name: Wait for server to become healthy
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/api/health > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/uvicorn_e2e.log"
+          exit 1
+
+      - name: E2E - app shell loads with the built frontend
+        run: |
+          html="$(curl -sf http://127.0.0.1:8000/)"
+          echo "$html" | grep -q 'id="root"'
+          echo "$html" | grep -q 'PharmaCare AI'
+
+      - name: E2E - login through the real API
+        run: |
+          python3 -c "import sys, textwrap; open('$RUNNER_TEMP/test_e2e_login.py', 'w').write(textwrap.dedent(sys.stdin.read()))" << 'PYEOF'
+          import httpx
+
+          BASE = "http://127.0.0.1:8000"
+
+
+          def test_login_flow():
+              r = httpx.post(f"{BASE}/api/login", json={"username": "admin", "password": "123"})
+              assert r.status_code == 200
+              assert r.cookies.get("token")
+          PYEOF
+          pytest "$RUNNER_TEMP/test_e2e_login.py" -q
+
+      - name: E2E - one live RAG chat sample (needs GOOGLE_API_KEY + QDRANT secrets)
+        if: ${{ secrets.GOOGLE_API_KEY != '' && secrets.QDRANT_URL != '' && secrets.QDRANT_API_KEY != '' }}
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+        run: |
+          python3 -c "import sys, textwrap; open('$RUNNER_TEMP/test_e2e_chat.py', 'w').write(textwrap.dedent(sys.stdin.read()))" << 'PYEOF'
+          import httpx
+
+          BASE = "http://127.0.0.1:8000"
+
+
+          def test_one_chat_sample():
+              r = httpx.post(f"{BASE}/api/login", json={"username": "admin", "password": "123"})
+              headers = {"Authorization": f"Bearer {r.json()['token']}"}
+
+              r = httpx.post(f"{BASE}/api/sessions", json={"patient_name": "CI E2E Patient"}, headers=headers)
+              session_id = r.json()["id"]
+
+              # Single small sample question — kept to one request for CI latency.
+              r = httpx.post(
+                  f"{BASE}/api/chat",
+                  json={"session_id": session_id, "message": "เจ็บคอ 2 วัน มีไข้ต่ำๆ"},
+                  headers=headers,
+                  timeout=60.0,
+              )
+              assert r.status_code == 200, r.text
+              assert r.json()["answer"].strip() != ""
+
+              httpx.delete(f"{BASE}/api/sessions/{session_id}", headers=headers)
+          PYEOF
+          pytest "$RUNNER_TEMP/test_e2e_chat.py" -q
+
+      - name: Note - live RAG sample skipped (no secrets configured)
+        if: ${{ !(secrets.GOOGLE_API_KEY != '' && secrets.QDRANT_URL != '' && secrets.QDRANT_API_KEY != '') }}
+        run: echo 'GOOGLE_API_KEY / QDRANT_URL / QDRANT_API_KEY repo secrets are not set — skipped the live RAG chat sample. App-shell + login E2E above still ran and passed.'
+
+      - name: Stop server
+        if: always()
+        run: kill "$(cat "$RUNNER_TEMP/uvicorn_e2e.pid")" 2>/dev/null || true
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Health Check — builds the real Dockerfile image, runs it, and waits for
+  # Docker's own HEALTHCHECK (GET /api/health) to report healthy. Gated
+  # behind every test job above, so it acts as the final pre-deploy gate.
+  # No deployment happens here — CD is intentionally out of scope.
+  # ────────────────────────────────────────────────────────────────────────
+  health-check-before-deploy:
+    name: Health Check (Docker image, pre-deploy gate)
+    runs-on: ubuntu-latest
+    needs: [backend-unit-tests, frontend-unit-tests, integration-tests, api-tests, e2e-tests]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t pharmacare-ci:${{ github.sha }} .
+
+      - name: Run container
+        run: |
+          docker run -d --name pharmacare-ci \
+            -p 8899:8000 \
+            -e GOOGLE_API_KEY="${{ secrets.GOOGLE_API_KEY }}" \
+            -e QDRANT_URL="${{ secrets.QDRANT_URL }}" \
+            -e QDRANT_API_KEY="${{ secrets.QDRANT_API_KEY }}" \
+            pharmacare-ci:${{ github.sha }}
+
+      - name: Wait for Docker HEALTHCHECK to report healthy
+        run: |
+          for i in $(seq 1 40); do
+            status="$(docker inspect --format='{{.State.Health.Status}}' pharmacare-ci 2>/dev/null || echo starting)"
+            echo "attempt $i: $status"
+            if [ "$status" = "healthy" ]; then
+              exit 0
+            fi
+            if [ "$status" = "unhealthy" ]; then
+              echo "Container reported unhealthy"
+              docker logs pharmacare-ci
+              exit 1
+            fi
+            sleep 3
+          done
+          echo "Container did not become healthy in time"
+          docker logs pharmacare-ci
+          exit 1
+
+      - name: Container logs (for visibility)
+        if: always()
+        run: docker logs pharmacare-ci || true
+
+      - name: Clean up container
+        if: always()
+        run: docker rm -f pharmacare-ci || true
