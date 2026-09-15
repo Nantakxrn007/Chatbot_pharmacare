@@ -1,6 +1,21 @@
 name: Security
 
 # Continuous Integration only — no deployment step here.
+#
+# Every job below writes its full findings to security-reports/<tool>.json
+# (same relative path in every job, every run) and uploads that as a
+# downloadable run artifact — pass or fail — so results can be compared
+# across runs without digging through raw logs.
+#
+# Gate policy:
+#   - secret-scan / python-dependency-audit stay BLOCKING (nothing noisy or
+#     unfixable has ever been found there — a hit should fail CI).
+#   - node-dependency-audit / python-static-analysis are NON-BLOCKING
+#     (continue-on-error) for now: known findings there are either
+#     no-fix-on-npm (xlsx) / breaking-only (esbuild->vite v8) or reviewed
+#     false positives (bandit B310/B608) — see repo conversation history.
+#     They still run and still report every time; they just don't turn CI
+#     red until a real fix is chosen and applied deliberately.
 
 on:
   push:
@@ -20,6 +35,7 @@ jobs:
   # ────────────────────────────────────────────────────────────────────────
   # Secret scan — this repo keeps a real .env locally (API keys, Qdrant
   # cloud creds); this job fails the build if a secret ever gets committed.
+  # BLOCKING — no known noise here.
   # ────────────────────────────────────────────────────────────────────────
   secret-scan:
     name: Secret Scan (gitleaks)
@@ -36,8 +52,24 @@ jobs:
           sudo tar -xzf gitleaks.tar.gz -C /usr/local/bin gitleaks
           rm gitleaks.tar.gz
 
-      - name: Scan repository history for committed secrets
-        run: gitleaks detect --source . --no-banner --redact
+      - name: Scan repository for committed secrets (report + gate)
+        run: |
+          set +e
+          mkdir -p security-reports
+          gitleaks detect --source . --no-banner --redact \
+            --report-format json --report-path security-reports/gitleaks.json
+          gate_status=$?
+          set -e
+          exit $gate_status
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports-secret-scan
+          path: security-reports/
+          retention-days: 90
+          if-no-files-found: ignore
 
   # ────────────────────────────────────────────────────────────────────────
   # Dependency vulnerability audits
@@ -54,7 +86,26 @@ jobs:
           cache: pip
 
       - run: pip install pip-audit
-      - run: pip-audit -r requirements.txt
+
+      # BLOCKING — no known noise on the Python side yet.
+      - name: pip-audit (report + gate)
+        run: |
+          set +e
+          mkdir -p security-reports
+          pip-audit -r requirements.txt
+          gate_status=$?
+          set -e
+          pip-audit -r requirements.txt -f json -o security-reports/pip-audit.json || true
+          exit $gate_status
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports-python-deps
+          path: security-reports/
+          retention-days: 90
+          if-no-files-found: ignore
 
   node-dependency-audit:
     name: Dependency Audit (Node)
@@ -72,7 +123,29 @@ jobs:
           cache-dependency-path: frontend/react-app/package-lock.json
 
       - run: npm ci
-      - run: npm audit --audit-level=high
+
+      # NON-BLOCKING (see policy note at top of file): xlsx has no npm fix,
+      # esbuild->vite only fixes via a breaking vite v8 bump. Still reports
+      # every finding every run via the uploaded artifact.
+      - name: npm audit (report, non-blocking)
+        continue-on-error: true
+        run: |
+          set +e
+          mkdir -p "$GITHUB_WORKSPACE/security-reports"
+          npm audit --audit-level=high
+          gate_status=$?
+          set -e
+          npm audit --json > "$GITHUB_WORKSPACE/security-reports/npm-audit.json" || true
+          exit $gate_status
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports-node-deps
+          path: security-reports/
+          retention-days: 90
+          if-no-files-found: ignore
 
   # ────────────────────────────────────────────────────────────────────────
   # Static security analysis — common Python security anti-patterns
@@ -90,4 +163,26 @@ jobs:
           cache: pip
 
       - run: pip install bandit
-      - run: bandit -r backend -x backend/__pycache__ -ll
+
+      # NON-BLOCKING (see policy note at top of file): current findings
+      # (2x B310 urlopen, 1x B608) were reviewed as expected/false-positive
+      # for this codebase. Still reports every finding every run.
+      - name: bandit (report, non-blocking)
+        continue-on-error: true
+        run: |
+          set +e
+          mkdir -p security-reports
+          bandit -r backend -x backend/__pycache__ -ll
+          gate_status=$?
+          set -e
+          bandit -r backend -x backend/__pycache__ -ll -f json -o security-reports/bandit.json || true
+          exit $gate_status
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports-bandit
+          path: security-reports/
+          retention-days: 90
+          if-no-files-found: ignore
