@@ -422,7 +422,25 @@ export default function ChatPage() {
   }, []);
 
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => showToast('คัดลอกแล้ว ✓'));
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(() => showToast('คัดลอกแล้ว ✓'));
+      return;
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      showToast('คัดลอกแล้ว ✓');
+    } catch {
+      showToast('คัดลอกไม่สำเร็จ');
+    }
+    document.body.removeChild(textarea);
   };
 
   const chatTitle = currentPatientName || (currentSessionId ? 'แชท' : 'หน้าหลัก');
