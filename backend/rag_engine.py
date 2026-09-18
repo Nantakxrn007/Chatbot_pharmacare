@@ -1039,7 +1039,20 @@ Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช
         - **เลือกยาให้ตรงลักษณะอาการ (หลักเภสัชวิทยา -- สำคัญมาก, ใช้ตอนตอบเจาะจงตามที่ผู้ใช้ถามต่อ):**
           - น้ำมูกใส/ไหล -> ยาลดน้ำมูก = Antihistamine (รุ่นที่ 1 เช่น Chlorpheniramine, Brompheniramine เหมาะน้ำมูกใสเหลว แต่ง่วง;
             รุ่นที่ 2 เช่น Cetirizine, Loratadine, Desloratadine, Levocetirizine, Fexofenadine, Bilastine ง่วงน้อยกว่า)
-          - น้ำมูกข้นเหนียว/มีสี/ไซนัสอักเสบ -> **ห้ามเฉพาะ Antihistamine รุ่นที่ 1 (Chlorpheniramine, Brompheniramine) และสูตรผสมที่มีตัวนี้**
+          - **กฎการยกตัวอย่าง "เช่น / ได้แก่" (ใช้กับทุกหัวข้อที่เอ่ยชื่อยาได้แล้ว -- ผิดบ่อยมาก):** ถ้าสิ่งที่กำลังพูดถึง
+            (ไม่ว่าจะเป็นกลุ่มยาที่แนะนำ หรือกลุ่มที่ไม่เหมาะ) **มีหลายตัวที่เข้าข่ายจริงใน Context/DOSE CATALOG**
+            ต้อง **เอ่ยชื่อให้ครบทุกตัวเท่าที่ Context ระบุไว้** -- **ห้ามเขียน "เช่น <ยาตัวเดียว>" แล้วจบเด็ดขาด**
+            เพราะผู้อ่านจะเข้าใจว่ามีแค่ตัวนั้น (bias) ทั้งที่ยังมีตัวอื่นที่เข้าข่ายเหมือนกันอีก
+            - ผิด: "ยาแก้แพ้รุ่นที่ 1 (เช่น Chlorpheniramine)" / "NSAIDs เช่น Ibuprofen"
+            - ถูก: "ยาแก้แพ้รุ่นที่ 1 ได้แก่ Chlorpheniramine (CPM), Brompheniramine, Diphenhydramine, Cyproheptadine,
+              Hydroxyzine" / "NSAIDs ได้แก่ Ibuprofen, Diclofenac, Naproxen, Mefenamic acid"
+              (รายชื่อจริงให้ยึดตาม DOSE CATALOG ของเคสนั้นเสมอ ไม่ใช่จำจากตัวอย่างนี้)
+            - ถ้า Context มีตัวเดียวจริงๆ ในกลุ่มนั้น -> เอ่ยตัวเดียวได้ แต่เขียนตรงๆ ไม่ต้องใช้คำว่า "เช่น"
+            - บรรทัด "(มีในตารางแต่ไม่แนะนำในเคสนี้ ...)" และหมวด "ไม่เหมาะกับเคสนี้" ใน DOSE CATALOG **ได้ให้ชื่อครบไว้แล้ว
+              ให้คัดลอกไปให้ครบ ห้ามย่อเหลือตัวเดียว**
+            - (กฎนี้ใช้กับ **ขั้นแนะนำการรักษา** เท่านั้น -- **ขั้นซักประวัติยังห้ามเอ่ยชื่อยาตัวอย่างตามเดิม**)
+          - น้ำมูกข้นเหนียว/มีสี/ไซนัสอักเสบ -> **ห้าม Antihistamine รุ่นที่ 1 ทุกตัว (ดูรายชื่อครบใน DOSE CATALOG --
+            Chlorpheniramine/CPM, Brompheniramine, Diphenhydramine, Cyproheptadine, Hydroxyzine) และสูตรผสมที่มีตัวเหล่านี้**
             เพราะลดสารคัดหลั่งแรงจนน้ำมูกข้นเหนียว "แห้งติด" ในโพรงจมูก (รุ่นที่ 1 เหมาะกับเคสน้ำมูกใสเหลว/ไหลเป็นสายไม่หยุดมากกว่า)
             -- **แต่ Antihistamine ตัวอื่นที่ไม่ใช่รุ่นที่ 1 (รุ่นที่ 2 เช่น Cetirizine, Loratadine) ยังใช้ลดน้ำมูกในเคสนี้ได้** โดยใช้ควบคู่กับ
             **ล้างจมูกด้วยน้ำเกลือ** -- **ห้ามเขียนเหมารวมว่า "ยาแก้แพ้/Antihistamine" ทั้งกลุ่มไม่เหมาะกับเคสนี้ และห้ามใส่ Cetirizine/
@@ -1093,7 +1106,14 @@ Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช
             ตัวเดียวจบ) พร้อมอธิบายสั้นๆ ว่าแต่ละตัวเหมาะกับใคร/ต่างกันยังไง แล้วต่อด้วยขนาดยาให้ครบทุกตัวเลือก** -- ทุกกรณี
             ห้ามใช้ภาษาเชิงโฆษณา (เช่น "ยี่ห้อดีที่สุด/แนะนำที่สุด") -- ยาปฏิชีวนะ (หัวข้อ 3a) ไม่อยู่ในกฎนี้ เพราะชื่อยา
             ปฏิชีวนะเป็นชื่อสามัญทางยา (Generic name) อยู่แล้ว ไม่ใช่ชื่อการค้า
-        - ห้ามแนะนำยาในกลุ่มที่ Catalog ระบุว่า "ไม่เหมาะกับเคสนี้" (ถ้าจะกล่าวถึง ให้บอกสั้นๆ ว่าไม่แนะนำเพราะอะไร)
+        - ห้ามแนะนำยาในกลุ่มที่ Catalog ระบุว่า "ไม่เหมาะกับเคสนี้"
+        - **หัวข้อ "กลุ่มที่ไม่เหมาะกับเคสนี้" -- บังคับทุกครั้งที่คำตอบลงรายชื่อยา (ห้ามข้าม):** ถ้า DOSE CATALOG มีหมวด
+          **"■ ไม่เหมาะกับเคสนี้"** ให้ปิดท้ายหัวข้อ 3b ด้วยหัวข้อย่อยตัวหนา **"กลุ่มที่ไม่เหมาะกับเคสนี้"** เสมอ โดยไล่
+          **ทุกหมวดที่อยู่ในบล็อกนั้น หมวดละ 1 บรรทัด พร้อมชื่อยาครบทุกตัวของหมวดนั้น + เหตุผลสั้นๆ**
+          -- **การเขียนข้อห้ามแทรกไว้ในวงเล็บใต้กลุ่มยาที่แนะนำ ไม่นับว่าทำข้อนี้แล้ว** (เป็นคนละส่วนกัน: วงเล็บนั้นคือ
+          "ตัวที่ถูกคัดออกจากกลุ่มที่แนะนำ" ส่วนหัวข้อนี้คือ "กลุ่มยาที่ไม่ควรใช้ทั้งกลุ่มในเคสนี้")
+          -- เหตุผลที่ต้องมี: เภสัชกรต้องรู้ว่า **อะไรห้ามจ่าย** ไม่ใช่รู้แค่ว่าจ่ายอะไรได้ (ยาสูตรผสมที่ผู้ป่วยมักซื้อเอง
+          เช่นยาแก้หวัดสูตรผสม เป็นกลุ่มที่พลาดบ่อยที่สุด) -- ถ้าบล็อกนี้ไม่มีใน Catalog ก็ไม่ต้องใส่หัวข้อนี้
         - **ทางเลือกที่ไม่ใช้ยา** ใน Catalog (เช่น ล้างจมูกด้วยน้ำเกลือ, กลั้วคอด้วยน้ำเกลือ, พักเสียง) ต้องใส่ในหัวข้อ 3b หรือ 4
           เสมอเมื่อเกี่ยวข้อง -- **ไม่ต้องอ้าง [Ref: Dose]** กับข้อนี้ (ไม่ใช่ยาในตาราง Dose)
         - เมื่อตอบเจาะจงจนมีชื่อยาบรรเทาอาการแล้ว (ไม่ใช่คำตอบแรก) **ให้ปิดท้ายหัวข้อ 3b ด้วย 1 บรรทัด** เชิญถามต่อ เช่น
@@ -2336,6 +2356,9 @@ def _reference_only_pages() -> dict[str, set[str]]:
     return _REF_PAGE_CACHE
 
 
+_INGREDIENT_MARK_RE = _re.compile(r"ตัวยา|ส่วนประกอบ|ประกอบด้วย|สารสำคัญ|สารสกัด|ingredient", _re.IGNORECASE)
+
+
 def _last_drug_hit(seg: str) -> str | None:
     """เลขหน้า Dose ของ "ยาที่ตรงกับสิ่งที่กำลังแนะนำจริง" ในข้อความนี้ (None = ไม่พบ)
 
@@ -2352,6 +2375,15 @@ def _last_drug_hit(seg: str) -> str | None:
     hits = _sg.dose_drug_hits(seg)
     if not hits:
         return None
+    # วงเล็บที่ไล่ "ตัวยา/ส่วนประกอบ" ของผลิตภัณฑ์ = คำอธิบาย ไม่ใช่ยาที่บรรทัดนั้นกำลังพูดถึง
+    # เช่น "Decolgen prin, TIFFY DEY (ตัวยา: Paracetamol + Chlorpheniramine + Phenylephrine)"
+    # -> กฎ "ชื่อยาวสุดชนะ" จะเลือก Chlorpheniramine (หน้า 1) แทน Decolgen (หน้า 7) = กดแล้วเปิดผิดยา
+    # จึงตัดชื่อที่อยู่ "หลังคำบอกตัวยา" ออกก่อน แล้วค่อยใช้กฎเดิม
+    m = _INGREDIENT_MARK_RE.search(seg or "")
+    if m:
+        before_mark = [h for h in hits if h[0] < m.start()]
+        if before_mark:
+            hits = before_mark
     _start, _end, page = max(hits, key=lambda h: (h[1] - h[0], h[0]))
     return page
 
@@ -2645,12 +2677,27 @@ def _postprocess_answer(text: str, dose_pages: list[str] | None = None, lookback
         out = _sg.fix_form_labels(out)
     except Exception as e:  # noqa: BLE001
         print(f"[RAG] form-label fix skipped: {e}")
+    # ยก "เช่น <ยาตัวเดียว>" ในบริบท "ไม่เหมาะ/ไม่แนะนำ" ทั้งที่กลุ่มนั้นมีหลายตัว -> เติมให้ครบ
+    try:
+        out = _sg.expand_group_examples(out)
+    except Exception as e:  # noqa: BLE001
+        print(f"[RAG] group-example fix skipped: {e}")
     # เคสเด็ก: ขนาดยาปฏิชีวนะที่มีทั้งใน URI เด็ก 2562 และ AAFP -> เติม [Ref] ของอีกเล่มให้กดได้ทั้งคู่
     try:
         return _sg.dual_guideline_refs(out, dual_map) if dual_map else out
     except Exception as e:  # noqa: BLE001
         print(f"[RAG] dual-guideline ref fix skipped: {e}")
         return out
+
+
+def _ensure_avoided(text: str, plan: dict | None) -> str:
+    """backstop: เติมหัวข้อ 'กลุ่มที่ไม่เหมาะกับเคสนี้' ถ้าคำตอบสุดท้ายลงชื่อยาแล้วแต่ยังไม่ได้พูดถึง
+    (ใช้กับ 'ข้อความสุดท้ายทั้งก้อน' เท่านั้น ไม่ใช่ระหว่างสตรีมทีละ chunk)"""
+    try:
+        return _sg.ensure_avoided_section(text, plan or {})
+    except Exception as e:  # noqa: BLE001
+        print(f"[RAG] avoided-section backstop skipped: {e}")
+        return text
 
 
 def _post_ask_question(gate: dict, question: str) -> str:
@@ -2741,7 +2788,8 @@ def _stream_flush(
     # ชื่อหมวดยาเฉพาะที่คอ -> ต้องเห็น "ทั้งบรรทัดหัวข้อ" ก่อน ไม่งั้นหัวข้อถูกหั่นคนละ chunk
     if (_sg.mentions_brand(pending[nl + 1:cut])
             or (dual_map and _sg.mentions_antibiotic(pending[nl + 1:cut]))
-            or _sg.may_become_form_label(pending[nl + 1:cut])):
+            or _sg.may_become_form_label(pending[nl + 1:cut])
+            or _sg.may_need_group_expand(pending[nl + 1:cut])):
         cut = nl + 1
     # หัวข้อหมวดยาเฉพาะที่คอ (ยาพ่นคอ/ยาอม/ยากลั้วคอ) ต้องเห็นรายการยาใต้หัวข้อทั้งบล็อกก่อน จึงตรวจชื่อหมวดได้
     try:
@@ -3445,6 +3493,7 @@ def generate_answer(
 
     answer = _postprocess_answer(answer, dose_pages, dual_map=dual_map,
                                  guard=_citation_guard(chunks))
+    answer = _ensure_avoided(answer, sym_plan)
     sources, seen = _guideline_sources(chunks, weak_context)
     _append_external_refs(sources, seen, answer)
     _append_dose_sources(sources, seen, answer)
@@ -3563,6 +3612,18 @@ async def generate_answer_stream(
         if emit:
             shown += emit
             yield json.dumps({"type": "chunk", "content": emit}) + "\n"
+
+        # backstop: คำตอบลงชื่อยาแล้วแต่ลืมหัวข้อ "กลุ่มที่ไม่เหมาะกับเคสนี้" -> ส่งต่อท้ายให้ผู้ใช้เห็น
+        # (สตรีมแล้วแทรกกลางข้อความไม่ได้ จึงต่อท้าย -- เนื้อหาเหมือนกับฝั่ง non-stream)
+        try:
+            extra = _sg.missing_avoided_block(shown, sym_plan)
+        except Exception as e:  # noqa: BLE001
+            print(f"[RAG] avoided-section backstop skipped: {e}")
+            extra = ""
+        if extra:
+            extra = "\n\n" + extra
+            shown += extra
+            yield json.dumps({"type": "chunk", "content": extra}) + "\n"
 
         # Extract usage from response if not found in chunks
         if prompt_tokens == 0 and hasattr(response, "usage_metadata") and response.usage_metadata:
