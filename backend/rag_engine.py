@@ -685,6 +685,20 @@ Laryngitis = กล่องเสียงอักเสบ; Acute otitis medi
    - ตรวจข้อห้ามใช้ตามอายุใน Context เสมอ (เช่น ยาหลายตัวห้ามใช้ในเด็ก <1 ปี หรือ <6 ปี) --
      ห้ามแนะนำยาที่ Context ระบุข้อห้ามตามอายุของผู้ป่วยรายนั้น
 
+5.1 ประวัติแพ้ยาของผู้ป่วย = ข้อห้ามเด็ดขาด (SAFETY RULE -- สำคัญที่สุด ต้องตรวจก่อนส่งคำตอบทุกครั้ง):
+   - **ยาที่ผู้ใช้ระบุว่า "ผู้ป่วยแพ้" ห้ามปรากฏเป็นคำแนะนำในคำตอบเด็ดขาด** ไม่ว่าจะอยู่ในหัวข้อใด
+     (หัวข้อยา, ตารางสรุปขนาดยา, คำแนะนำดูแลตัวเอง, บล็อกแนวปฏิบัติจริง) และไม่ว่าเทิร์นนั้นผู้ใช้จะถามอะไร
+   - **ประวัติแพ้ยาผูกกับ "ผู้ป่วยรายนั้น" ไม่ใช่กับเทิร์นที่ผู้ใช้พิมพ์** -- ถ้าเคสเดิมแจ้งว่าแพ้ยาไว้ตั้งแต่เทิร์นแรก
+     แล้วเทิร์นต่อมาผู้ใช้ถามกว้างๆ (เช่น "ยาในร้านมีอะไรบ้าง", "ขอตัวเลือกอื่น") **ข้อห้ามนั้นยังมีผลเต็มที่**
+     ห้ามถือว่าคำถามใหม่ = เคสใหม่ที่ไม่มีข้อจำกัด
+   - **แพ้ยาในกลุ่ม NSAIDs ตัวใดตัวหนึ่ง = ต้องเลี่ยง NSAIDs ตัวอื่นในกลุ่มด้วย** (cross-reactivity ระดับกลุ่ม)
+     เช่น แพ้ Ibuprofen -> ห้ามเสนอ Diclofenac/Naproxen/Mefenamic acid/Aspirin เป็นทางเลือกแทน
+   - **"ใช้ยา X แล้วไม่ได้ผล" ห้ามทำให้ข้อห้ามเรื่องการแพ้ยาหายไป** -- ถ้าทางเลือกถัดไปคือกลุ่มที่ผู้ป่วยแพ้
+     ให้บอกตรงๆ ว่าเลี่ยงทั้งกลุ่มเพราะแพ้ แล้วเสนอการดูแลแบบไม่ใช้ยา/ส่งต่อแพทย์แทน (ห้ามฝืนเสนอยาที่แพ้)
+   - **ถ้าจำเป็นต้องเอ่ยชื่อยาที่แพ้ ให้เขียนได้เฉพาะในเชิง "ห้ามใช้/หลีกเลี่ยงในผู้ป่วยรายนี้ เพราะมีประวัติแพ้"**
+   - **ขั้นตอนตรวจก่อนตอบ (บังคับ):** ก่อนปิดคำตอบ ให้ไล่อ่านชื่อยาทุกตัวที่เขียนไป (รวมชื่อการค้าและสูตรผสม)
+     เทียบกับรายการแพ้ยาของเคสนี้ -- เจอตัวไหนตรงหรืออยู่ในกลุ่มเดียวกัน ให้ตัดออกแล้วเสนอทางเลือกอื่นแทน
+
 6. ห้าม Hallucinate (สำคัญมาก):
    - ห้ามสรุปหรือเติมข้อมูลที่ผู้ใช้ไม่ได้ให้มา
    - ห้ามสมมติว่าผู้ป่วยแพ้ยาหากผู้ใช้ยังไม่ได้แจ้ง (ถ้าไม่ได้แจ้ง = "ไม่ทราบประวัติแพ้ยา")
@@ -857,6 +871,10 @@ Step 7 (Self-Verification -- ตรวจก่อนส่ง): ไล่เช
      ให้เภสัชกรใช้ได้ทันที -- ไม่ใช่บอกแค่ชื่อยา
 **รูปแบบการเขียนบล็อก Expert Opinion (ต้องทำให้เภสัชกรเห็นชัดว่านี่คือ "แนวปฏิบัติจริง" ไม่ใช่ข้อความ Guideline):**
 - ขึ้นหัวข้อบล็อกด้วยบรรทัดตัวหนาเดี่ยวๆ **เป๊ะตามนี้**: `**ในทางปฏิบัติจริง (บริบทร้านยาไทย):**` (ระบบฝั่งเว็บจะไฮไลต์บล็อกนี้ให้อัตโนมัติ)
+- **บรรทัดแรกใต้หัวข้อบล็อกต้องเป็น "ประโยคข้อความ" เสมอ (บอกว่าหน้างานจริงทำอย่างไร)** --
+  **ห้ามขึ้นต้นบล็อกด้วยหัวข้อย่อยตัวหนาที่ขึ้นต้นด้วยคำว่า "ยา"** (เช่น `**ยาทางเลือกแรก (First-line):**`,
+  `**ยาปฏิชีวนะที่พิจารณาจ่าย:**`) เพราะระบบฝั่งเว็บจะปิดกรอบทันทีและเนื้อหาจะตกออกนอกกรอบจนเหลือแต่กรอบเปล่า
+  -> เขียนประโยคนำก่อน แล้วค่อยตามด้วยรายชื่อยา/ขนาดยา
 - ภายในบล็อก ให้ทำ **ตัวหนา** ที่ "ประโยคชี้ขาดเชิงปฏิบัติ" (เช่น จ่ายหรือไม่จ่าย ชื่อยา+ขนาด+ระยะเวลา เกณฑ์คะแนนที่ใช้ตัดสิน)
   อย่างน้อย 1 ประโยค -- ส่วนที่เป็นเหตุผลประกอบไม่ต้องตัวหนา
 - **ตำแหน่งของบล็อก: วางไว้ในหัวข้อที่เกี่ยวข้องทันทีหลังคำแนะนำตาม Guideline** (เรื่องยาปฏิชีวนะ -> อยู่ในหัวข้อ 3a ต่อจากบรรทัด
@@ -2662,9 +2680,11 @@ def _dose_pages_in_context(chunks: list[dict]) -> list[str]:
 
 
 def _postprocess_answer(text: str, dose_pages: list[str] | None = None, lookback: str = "",
-                        dual_map: dict | None = None, guard: dict | None = None) -> str:
+                        dual_map: dict | None = None, guard: dict | None = None,
+                        feat: dict | None = None) -> str:
     """citation normalize + brand gateway (ชื่อการค้าต้องมีตัวยาสำคัญกำกับ) + ชื่อหมวดยาตามรูปแบบ (ยาพ่นคอ/ยาอม/ยากลั้วคอ)
-    guard = ผลของ _citation_guard(chunks): หน้าที่ Context ให้มาจริง (ใช้บังคับเลขหน้า AAFP/URI)"""
+    guard = ผลของ _citation_guard(chunks): หน้าที่ Context ให้มาจริง (ใช้บังคับเลขหน้า AAFP/URI)
+    feat  = case features (ใช้กับ allergy audit + Expert Opinion gateway ของ opt4)"""
     if not text:
         return text
     prefix = lookback[lookback.rfind("\n") + 1:] if lookback else ""
@@ -2684,9 +2704,20 @@ def _postprocess_answer(text: str, dose_pages: list[str] | None = None, lookback
         print(f"[RAG] group-example fix skipped: {e}")
     # เคสเด็ก: ขนาดยาปฏิชีวนะที่มีทั้งใน URI เด็ก 2562 และ AAFP -> เติม [Ref] ของอีกเล่มให้กดได้ทั้งคู่
     try:
-        return _sg.dual_guideline_refs(out, dual_map) if dual_map else out
+        out = _sg.dual_guideline_refs(out, dual_map) if dual_map else out
     except Exception as e:  # noqa: BLE001
         print(f"[RAG] dual-guideline ref fix skipped: {e}")
+    # opt4 safety backstop: ยาที่ผู้ป่วยแจ้งว่าแพ้ ต้องไม่หลุดออกไปเป็น "คำแนะนำ" ในชั้นสุดท้าย
+    try:
+        out = _sg.audit_allergy_lines(out, feat or {})
+    except Exception as e:  # noqa: BLE001
+        print(f"[RAG] allergy audit skipped: {e}")
+    # opt4: บล็อก Expert Opinion ต้องไม่กลายเป็นกรอบเปล่า (เนื้อหาต้องอยู่ในกรอบเสมอ)
+    # ส่ง ctx_pages ไปด้วย -> ถ้าต้องเติมประโยคต้นฉบับ AAFP จะอ้างเลขหน้าได้เฉพาะหน้าที่ Context ให้มาจริง
+    try:
+        return _sg.ensure_expert_block(out, feat, g.get("ctx_pages"))
+    except Exception as e:  # noqa: BLE001
+        print(f"[RAG] expert-block gateway skipped: {e}")
         return out
 
 
@@ -2768,7 +2799,7 @@ def _relabel_dose_sources(sources: list[dict], answer: str) -> None:
 
 def _stream_flush(
     pending: str, final: bool, dose_pages: list[str] | None = None, lookback: str = "",
-    dual_map: dict | None = None, guard: dict | None = None
+    dual_map: dict | None = None, guard: dict | None = None, feat: dict | None = None
 ) -> tuple[str, str]:
     """
     ใช้ตอน streaming: normalize citation ก่อนส่งให้ผู้ใช้เห็น (frontend เรนเดอร์ข้อความสตรีมสดๆ
@@ -2777,7 +2808,7 @@ def _stream_flush(
     คืน (emit, remaining): emit = ส่วนที่ปลอดภัยและ sanitize แล้ว, remaining = กันไว้ต่อ chunk ถัดไป
     """
     if final:
-        return _postprocess_answer(pending, dose_pages, lookback, dual_map, guard), ""
+        return _postprocess_answer(pending, dose_pages, lookback, dual_map, guard, feat), ""
     cut = len(pending)
     open_idx = pending.rfind("[")
     close_idx = pending.rfind("]")
@@ -2786,10 +2817,12 @@ def _stream_flush(
     nl = pending.rfind("\n", 0, cut)
     # ชื่อการค้า -> brand gateway ต้องเห็นทั้งบรรทัด; ชื่อยาปฏิชีวนะ -> ต้องเห็นทั้งบรรทัดก่อนเติม [Ref] ของอีกเล่ม
     # ชื่อหมวดยาเฉพาะที่คอ -> ต้องเห็น "ทั้งบรรทัดหัวข้อ" ก่อน ไม่งั้นหัวข้อถูกหั่นคนละ chunk
+    # ชื่อยาที่ผู้ป่วยแพ้ -> allergy audit ต้องเห็นทั้งบรรทัดก่อน จึงแยกได้ว่าเป็น "คำแนะนำ" หรือ "คำเตือน"
     if (_sg.mentions_brand(pending[nl + 1:cut])
             or (dual_map and _sg.mentions_antibiotic(pending[nl + 1:cut]))
             or _sg.may_become_form_label(pending[nl + 1:cut])
-            or _sg.may_need_group_expand(pending[nl + 1:cut])):
+            or _sg.may_need_group_expand(pending[nl + 1:cut])
+            or _sg.mentions_allergen(pending[nl + 1:cut], feat or {})):
         cut = nl + 1
     # หัวข้อหมวดยาเฉพาะที่คอ (ยาพ่นคอ/ยาอม/ยากลั้วคอ) ต้องเห็นรายการยาใต้หัวข้อทั้งบล็อกก่อน จึงตรวจชื่อหมวดได้
     try:
@@ -2798,7 +2831,14 @@ def _stream_flush(
             cut = open_label
     except Exception as e:  # noqa: BLE001
         print(f"[RAG] form-label stream guard skipped: {e}")
-    return _postprocess_answer(pending[:cut], dose_pages, lookback, dual_map, guard), pending[cut:]
+    # หัวข้อบล็อก Expert Opinion -> ต้องเห็นบรรทัดเนื้อหาถัดไปก่อน จึงรู้ว่ากรอบจะว่างหรือไม่
+    try:
+        open_expert = _sg.open_expert_head_start(pending[:cut])
+        if open_expert is not None:
+            cut = open_expert
+    except Exception as e:  # noqa: BLE001
+        print(f"[RAG] expert-block stream guard skipped: {e}")
+    return _postprocess_answer(pending[:cut], dose_pages, lookback, dual_map, guard, feat), pending[cut:]
 
 
 def _guideline_sources(chunks: list[dict], weak_context: bool) -> tuple[list[dict], set]:
@@ -3207,7 +3247,9 @@ def _case_text_for_features(question: str, history: list[dict] | None) -> tuple[
     """ข้อความเคสที่ใช้สกัดอาการ -> (text, is_followup)
     follow-up (ไม่ขึ้นเคสใหม่ + ไม่ใช่คำบรรยายเคสของตัวเอง) = เคสล่าสุดในแชท + ข้อความผู้ใช้ที่ตามมา + คำถามนี้"""
     text = (question or "").strip()
-    if not history or _NEW_CASE_RE.search(text) or _sg.is_case_description(text):
+    # "ขอดูตัวเลือกยาแก้ปวดลดไข้ทั้งหมด" = คำขอดูยาของเคสเดิม ไม่ใช่เคสใหม่ (ชื่อกลุ่มยามีคำอาการอยู่ในตัว)
+    if not history or _NEW_CASE_RE.search(text) or (
+            _sg.is_case_description(text) and not _sg.is_drug_request_only(text)):
         return text, False
     users = [(i, m.get("content") or "") for i, m in enumerate(history) if m.get("role") == "user"]
     for pos in range(len(users) - 1, -1, -1):
@@ -3262,7 +3304,8 @@ def history_gate(question: str, history: list[dict] | None) -> dict:
             asked = {m["key"] for m in (p_chk or {}).get("missing", [])}
             still = {m["key"] for m in (merged_chk or {}).get("missing", [])}
             resolved = asked - still
-            own_case = _sg.is_case_description(text, q_feat)
+            # คำขอดูตัวเลือกยา (ไม่มีคำบ่งชี้ตัวผู้ป่วย) ไม่ใช่ "ผู้ป่วยรายใหม่" -> ต้องคงเคสที่ค้างอยู่ไว้
+            own_case = _sg.is_case_description(text, q_feat) and not _sg.is_drug_request_only(text)
             answers_questions = len(resolved) >= 2 or (resolved and not own_case)
             if answers_questions or not own_case:
                 return {"mode": "post_ask", "case_text": merged, "feat": feat, "chk": merged_chk}
@@ -3342,6 +3385,11 @@ def build_clinical_support(
         allergy = _sg.allergy_note(case_text)
         if allergy:
             notes.append(allergy)
+        # opt4: ยาที่ผู้ป่วยแจ้งว่าแพ้ -> ข้อห้ามต้องติดไปทุกเทิร์นของเคสนี้ รวมคำถามต่อเนื่อง
+        # (feedback: เทิร์น 3 "ขอดูยาในร้าน" เคยเสนอ Ibuprofen ทั้งที่เทิร์น 1 บอกว่าแพ้)
+        alg_gate = _sg.allergy_gate_note(feat)
+        if alg_gate:
+            notes.append(alg_gate)
         if post_ask or (not followup and _sg.is_case_description(question, feat)):
             n_min = 0
             if post_ask:
@@ -3492,7 +3540,7 @@ def generate_answer(
             answer = f"[ระบบ] เกิดข้อผิดพลาดในการสร้างคำตอบ: {err_str}"
 
     answer = _postprocess_answer(answer, dose_pages, dual_map=dual_map,
-                                 guard=_citation_guard(chunks))
+                                 guard=_citation_guard(chunks), feat=sym_feat)
     answer = _ensure_avoided(answer, sym_plan)
     sources, seen = _guideline_sources(chunks, weak_context)
     _append_external_refs(sources, seen, answer)
@@ -3596,7 +3644,8 @@ async def generate_answer_stream(
                 # normalize citation \u0e23\u0e30\u0e2b\u0e27\u0e48\u0e32\u0e07\u0e2a\u0e15\u0e23\u0e35\u0e21 (frontend \u0e40\u0e23\u0e19\u0e40\u0e14\u0e2d\u0e23\u0e4c\u0e02\u0e49\u0e2d\u0e04\u0e27\u0e32\u0e21\u0e2a\u0e14\u0e46)
                 pending += chunk.text
                 emit, pending = _stream_flush(pending, final=False, dose_pages=dose_pages,
-                                              lookback=shown[-400:], dual_map=dual_map, guard=guard)
+                                              lookback=shown[-400:], dual_map=dual_map, guard=guard,
+                                              feat=sym_feat)
                 if emit:
                     shown += emit
                     yield json.dumps({"type": "chunk", "content": emit}) + "\n"
@@ -3608,7 +3657,7 @@ async def generate_answer_stream(
 
         # flush \u0e2a\u0e48\u0e27\u0e19\u0e17\u0e35\u0e48\u0e01\u0e31\u0e19\u0e44\u0e27\u0e49 (\u0e40\u0e0a\u0e48\u0e19 [Ref: ...] \u0e01\u0e49\u0e2d\u0e19\u0e2a\u0e38\u0e14\u0e17\u0e49\u0e32\u0e22)
         emit, pending = _stream_flush(pending, final=True, dose_pages=dose_pages, lookback=shown[-400:],
-                                      dual_map=dual_map, guard=guard)
+                                      dual_map=dual_map, guard=guard, feat=sym_feat)
         if emit:
             shown += emit
             yield json.dumps({"type": "chunk", "content": emit}) + "\n"
@@ -3633,7 +3682,8 @@ async def generate_answer_stream(
         # normalize citations \u0e17\u0e31\u0e49\u0e07\u0e01\u0e49\u0e2d\u0e19 \u0e41\u0e25\u0e49\u0e27\u0e04\u0e48\u0e2d\u0e22\u0e14\u0e36\u0e07\u0e2d\u0e49\u0e32\u0e07\u0e2d\u0e34\u0e07\u0e20\u0e32\u0e22\u0e19\u0e2d\u0e01 (URL) \u0e08\u0e32\u0e01\u0e02\u0e49\u0e2d\u0e04\u0e27\u0e32\u0e21\u0e04\u0e33\u0e15\u0e2d\u0e1a
         # full_answer = ข้อความที่ผู้ใช้เห็นจริง (บันทึกลงประวัติให้ตรงกับที่สตรีมออกไป)
         full_answer = shown if shown else _postprocess_answer(full_answer, dose_pages,
-                                                              dual_map=dual_map, guard=guard)
+                                                              dual_map=dual_map, guard=guard,
+                                                              feat=sym_feat)
         _append_external_refs(sources, seen, full_answer)
         _append_dose_sources(sources, seen, full_answer)
         _relabel_dose_sources(sources, full_answer)

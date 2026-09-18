@@ -332,6 +332,234 @@ COMORBIDITY_LABELS = {
 }
 
 
+# ─── Drug-allergy gateway (Phase2 opt4) ──────────────────────────────────────
+# feedback หลัง deploy: โจทย์ระบุ "มีประวัติแพ้ยา Ibuprofen" ชัดเจนตั้งแต่เทิร์นแรก แต่พอผู้ใช้
+# ถามต่อ ("อยากรู้ว่ายาภายในร้านมีอะไรบ้าง") ระบบกลับเสนอ Ibuprofen พร้อมขนาดยาเต็มๆ
+# สาเหตุ: DOSE CATALOG สร้างจาก "อาการ" อย่างเดียว ไม่เคยรู้จัก "ยาที่ผู้ป่วยแพ้" -> โมเดลลอกตามคลังยา
+# (ยิ่งเคสที่บอกว่า "ใช้พาราไม่ดีขึ้น" ระบบยิ่งดัน NSAIDs ขึ้นมา = ชี้ไปที่ยาที่แพ้พอดี)
+# -> สกัดชื่อยาที่แพ้แบบ deterministic (ไม่พึ่งโมเดล) แล้วกัน 3 ชั้น:
+#    (1) ตัดออกจากคลังยาใน Context  (2) บันทึกข้อห้ามให้ LLM  (3) ตรวจคำตอบก่อนส่งถึงผู้ใช้
+#
+# cross-reactivity ที่ใช้: แพ้ NSAID ตัวใดตัวหนึ่ง -> เลี่ยง NSAIDs ตัวอื่นทั้งกลุ่ม
+# (COX-1 mediated hypersensitivity เป็น cross-reactive ระดับกลุ่ม -- ความรู้ระดับกลุ่มยา ไม่ใช่รายเคส)
+
+# (ชื่อที่ใช้แสดง, regex ของชื่อยา/ตัวยาทั้งอังกฤษและไทย, แท็กกลุ่มสำหรับ cross-reactivity)
+_ALLERGEN_LEXICON: tuple[tuple[str, str, str], ...] = (
+    ("NSAIDs", r"nsaids?|เอ็นเสด|เอ็นเซด", "nsaid"),
+    ("Ibuprofen", r"ibuprofen|brufen|บรูเฟน|ไอบู(?:โปรเฟน|โพรเฟน|พรอเฟน)?", "nsaid"),
+    ("Naproxen", r"naproxen|นาโพรเซน|นาพรอกเซน", "nsaid"),
+    ("Diclofenac", r"diclofenac|voltaren|ไดโคลฟีแนค|ไดโคลฟีแนก|โวลทาเรน", "nsaid"),
+    ("Mefenamic acid", r"mefenamic|ponstan|พอนสแตน|เมเฟนามิก", "nsaid"),
+    ("Piroxicam", r"piroxicam|พิร็อกซิแคม", "nsaid"),
+    ("Celecoxib", r"celecoxib|เซเลค็อกซิบ", "nsaid"),
+    ("Etoricoxib", r"etoricoxib|arcoxia|อีโทริค็อกซิบ", "nsaid"),
+    ("Aspirin", r"aspirin|acetylsalicyl|แอสไพริน|แอสไพลิน", "nsaid"),
+    ("Paracetamol", r"paracetamol|acetaminophen|พาราเซตามอล|พารา(?!ไซ)", "paracetamol"),
+    ("Penicillin", r"penicill|เพน(?:น)?ิซิลลิน|เพนนิซิลิน", "beta_lactam"),
+    ("Amoxicillin", r"amoxicillin|amoxycillin|อะม็อกซิ|อะมอกซี|อม็อกซิ", "beta_lactam"),
+    ("Amoxicillin/clavulanate", r"augmentin|clavulan|ออกเมนติน", "beta_lactam"),
+    ("Cephalosporin", r"cephalexin|cefdinir|cefpodoxime|cefixime|ceftriaxone|cefuroxime|"
+                      r"cephalospor|เซฟาเลกซิน|เซฟไตรอะโซน", "beta_lactam"),
+    ("Azithromycin", r"azithromycin|อะซิโทรมัยซิน", "macrolide"),
+    ("Erythromycin", r"erythromycin|อีริโทรมัยซิน", "macrolide"),
+    ("Clarithromycin", r"clarithromycin|คลาริโทรมัยซิน", "macrolide"),
+    ("Clindamycin", r"clindamycin|คลินดามัยซิน", ""),
+    ("Doxycycline", r"doxycycline|tetracyclin|ด็อกซีไซคลิน|เตตร้าไซคลิน", ""),
+    ("Cotrimoxazole", r"cotrimoxazole|co-?trimoxazole|bactrim|sulfa|ซัลฟา|แบคทริม", "sulfa"),
+    ("Chlorpheniramine", r"chlorpheniramine|คลอร์เฟนิรามีน", ""),
+    ("Cetirizine", r"cetirizine|เซทิริซีน", ""),
+    ("Loratadine", r"loratadine|ลอราทาดีน", ""),
+    ("Dextromethorphan", r"dextromethorphan|เดกซ์โทรเมทอร์แฟน", ""),
+    ("Pseudoephedrine", r"pseudoephedrine|ซูโดอีเฟดรีน", ""),
+    ("Codeine", r"codeine|โคเดอีน", ""),
+)
+_ALLERGEN_RES: tuple[tuple[str, "re.Pattern", str], ...] = tuple(
+    (name, re.compile(pat, re.IGNORECASE), tag) for name, pat, tag in _ALLERGEN_LEXICON)
+_NSAID_ALLERGEN_NAMES = tuple(name for name, _p, tag in _ALLERGEN_LEXICON if tag == "nsaid")
+# ตัวยา NSAID ที่อาจอยู่ในผลิตภัณฑ์นอกหมวดยาแก้ปวด/ลดไข้ (เช่น ยาอมเจ็บคอที่มี flurbiprofen)
+_NSAID_INGREDIENT_RE = re.compile(
+    r"ibuprofen|flurbiprofen|ketoprofen|dexibuprofen|diclofenac|naproxen|mefenamic|piroxicam|"
+    r"meloxicam|celecoxib|etoricoxib|indomethacin|aspirin|acetylsalicyl|salicylate", re.IGNORECASE)
+# ตัวคั่นรายการยาที่แพ้ ("แพ้ยา Ibuprofen, paracetamol") -- ข้ามได้โดยยังอยู่ในรายการเดิม
+_ALLERGY_SEP_RE = re.compile(
+    r"^(?:[\s,;/·•\-]+|และ|หรือ|กับ|ทั้ง|ยา|ตัว|กลุ่ม|ชนิด|คือ|ได้แก่|:|\()+", re.IGNORECASE)
+# จุดเริ่มของ "รายการยาที่แพ้" -- กัน "ภูมิแพ้" (ไม่ใช่การแพ้ยา) ด้วย lookbehind เหมือน _ALLERGY_WORD_RE เดิม
+_ALLERGY_HEAD_RE = re.compile(
+    r"(?<!ภูมิ)แพ้|allergic\s+to|allergy\s+to|drug\s+allerg\w*|ห้ามใช้", re.IGNORECASE)
+# ปฏิเสธการแพ้ -> ข้ามจุดนั้นไป (ดูข้อความ 24 ตัวอักษรก่อนหน้า)
+_ALLERGY_DENY_RE = re.compile(
+    r"ไม่(?:มี|เคย|ได้)?(?:ประวัติ)?$|ปฏิเสธ|no\s+known|NKDA|ไม่ทราบ(?:ประวัติ)?$", re.IGNORECASE)
+
+
+def extract_drug_allergies(text: str) -> list[str]:
+    """ชื่อยาที่ผู้ใช้ระบุว่า "ผู้ป่วยแพ้" (deterministic, เรียงตามที่พบ) -- [] ถ้าไม่มี/ปฏิเสธการแพ้
+
+    อ่านเฉพาะ "รายการยาที่ต่อจากคำว่าแพ้" เท่านั้น จึงไม่ไปจับยาที่อยู่ในประโยคอื่น
+    (เช่น "แพ้ยา Ibuprofen ใช้พาราไม่ดีขึ้นเลย" -> ได้ Ibuprofen ตัวเดียว ไม่เอา Paracetamol)"""
+    text = text or ""
+    found: list[str] = []
+    for m in _ALLERGY_HEAD_RE.finditer(text):
+        if _ALLERGY_DENY_RE.search(text[max(0, m.start() - 24): m.start()]):
+            continue
+        pos = m.end()
+        # ไล่อ่านทีละโทเคน: ตัวคั่น -> ชื่อยา -> ตัวคั่น -> ชื่อยา ... หยุดทันทีที่เจอคำที่ไม่ใช่ทั้งสองอย่าง
+        while True:
+            sep = _ALLERGY_SEP_RE.match(text[pos: pos + 48])
+            if sep:
+                pos += sep.end()
+            seg = text[pos: pos + 48]
+            hit = None
+            for name, rx, _tag in _ALLERGEN_RES:
+                mm = rx.match(seg)
+                if mm and (hit is None or mm.end() > hit[1]):
+                    hit = (name, mm.end())
+            if hit is None:
+                break
+            if hit[0] not in found:
+                found.append(hit[0])
+            pos += hit[1]
+    return found
+
+
+def allergy_profile(text: str) -> dict:
+    """{"drugs": [ชื่อยาที่แพ้], "tags": {แท็กกลุ่มสำหรับ cross-reactivity}} -- ว่างเปล่าถ้าไม่พบ"""
+    drugs = extract_drug_allergies(text)
+    tags = {tag for name, _rx, tag in _ALLERGEN_RES if tag and name in drugs}
+    return {"drugs": drugs, "tags": tags}
+
+
+def _allergen_res(names: list[str]) -> list[tuple[str, "re.Pattern"]]:
+    return [(name, rx) for name, rx, _t in _ALLERGEN_RES if name in names]
+
+
+def allergy_drug_block(d: dict, f: dict) -> str:
+    """เหตุผลที่ "ห้ามแนะนำยาตัวนี้" จากประวัติแพ้ยาของเคส ("" = ไม่เกี่ยวกับการแพ้)"""
+    alg = (f or {}).get("allergy") or {}
+    names = alg.get("drugs") or []
+    if not names:
+        return ""
+    # ตัวยาที่ใช้เทียบ: ชื่อในตาราง + ตัวยาสำคัญของผลิตภัณฑ์ (สูตรผสมที่ชื่อไม่ได้บอกตัวยา เช่น Decolgen/TIFFY)
+    hay = " ".join([d.get("name") or "", brand_ingredient(d) or ""])
+    for name, rx in _allergen_res(names):
+        if rx.search(hay):
+            return (f"**ผู้ป่วยรายนี้มีประวัติแพ้ยา {name}** -- ห้ามแนะนำยาตัวนี้/ผลิตภัณฑ์ที่มีตัวยานี้ "
+                    f"ในทุกรูปแบบและทุกหัวข้อของคำตอบ")
+    # ผลิตภัณฑ์นอกหมวดยาแก้ปวดก็มีตัวยา NSAID ได้ (เช่น ยาอมที่มี flurbiprofen) -> ต้องดูตัวยาด้วย
+    # ไม่ใช่ดูแค่ธง nsaid ของหมวดยาแก้ปวด/ลดไข้
+    if ("nsaid" in (alg.get("tags") or set())
+            and (d.get("nsaid") or _NSAID_INGREDIENT_RE.search(hay))):
+        who = ", ".join(n for n in names if n in _NSAID_ALLERGEN_NAMES) or "ยากลุ่ม NSAIDs"
+        return (f"เลี่ยงทั้งกลุ่ม NSAIDs เพราะผู้ป่วยแพ้ {who} ซึ่งเป็น NSAID "
+                f"(cross-reactivity ระดับกลุ่ม -- แพ้ตัวหนึ่งมีโอกาสแพ้ตัวอื่นในกลุ่มเดียวกัน)")
+    return ""
+
+
+def allergy_gate_note(f: dict) -> str:
+    """บันทึกข้อห้ามจากประวัติแพ้ยา -- ใส่ใน clinical_notes ทุกเทิร์น (รวมคำถามต่อเนื่อง) กันข้อมูลหล่นกลางแชท"""
+    alg = (f or {}).get("allergy") or {}
+    names = alg.get("drugs") or []
+    if not names:
+        return ""
+    lines = ["**ข้อห้ามด้านการแพ้ยาของผู้ป่วยรายนี้ (ระบบสกัดจากข้อความเคส -- ใช้กับทุกเทิร์นของเคสนี้):** "
+             + ", ".join(names),
+             "- **ห้ามเสนอ/ห้ามระบุขนาดยาของยาเหล่านี้เป็นทางเลือกการรักษาเด็ดขาด** ทั้งในหัวข้อยา "
+             "ตารางสรุปขนาดยา และคำแนะนำดูแลตัวเอง -- รวมถึงยาสูตรผสม/ผลิตภัณฑ์ที่มีตัวยาเหล่านี้เป็นส่วนประกอบ",
+             "- ถ้าจำเป็นต้องเอ่ยถึง ให้เขียนในเชิง \"หลีกเลี่ยง/ห้ามใช้ในผู้ป่วยรายนี้ เพราะมีประวัติแพ้\" เท่านั้น"]
+    if "nsaid" in (alg.get("tags") or set()):
+        lines.append("- ผู้ป่วยแพ้ยาในกลุ่ม NSAIDs -> **หลีกเลี่ยง NSAIDs ตัวอื่นทั้งกลุ่มด้วย** "
+                     "(cross-reactivity ระดับกลุ่ม) และอธิบายเหตุผลข้อนี้ให้เภสัชกรเห็นชัดในคำตอบ "
+                     "-- ยาแก้ปวด/ลดไข้ที่ยังใช้ได้ให้เลือกจาก DOSE CATALOG เท่านั้น")
+    if "beta_lactam" in (alg.get("tags") or set()):
+        lines.append("- ผู้ป่วยแพ้ยากลุ่ม beta-lactam -> เลือกยาปฏิชีวนะทางเลือกตามชนิดการแพ้จากตารางใน Context "
+                     "ห้ามเสนอ first-line ที่เป็น beta-lactam เป็นยาของผู้ป่วยรายนี้")
+    lines.append("- **ก่อนจบคำตอบ ให้ไล่ตรวจชื่อยาทุกตัวที่เขียนไปว่าไม่มีตัวใดอยู่ในรายการแพ้ข้างต้น** "
+                 "(รวมชื่อการค้า/สูตรผสม) ถ้ามีให้ตัดออกแล้วเสนอทางเลือกอื่นแทน")
+    return chr(10).join(lines)
+
+
+# ─── Answer audit: ยาที่แพ้ต้องไม่หลุดออกไปเป็น "คำแนะนำ" (backstop ชั้นสุดท้าย) ──────
+# ทำงานระดับ "บรรทัด" จึงใช้ได้ทั้งโหมดสตรีมและไม่สตรีม
+_AVOID_CUE_RE = re.compile(
+    r"หลีกเลี่ยง|ห้าม|ไม่แนะนำ|ไม่ควร|ไม่เหมาะ|งด|เลี่ยง|แพ้|ข้อห้าม|ตัดออก|contraindicat|avoid",
+    re.IGNORECASE)
+_DRUG_ITEM_RE = re.compile(r"^(\s*(?:[-*•]|\d+[.)])\s*)(.+)$")
+_TABLE_ROW_RE = re.compile(r"^\s*\|(?!\s*[-:]+\s*\|)(.+)\|\s*$")
+# "<ชื่อผลิตภัณฑ์> (ตัวยา: X)" -- ใช้ดูตัวยาสำคัญที่วงเล็บหัวบรรทัดระบุไว้ (ไม่ไปจับชื่อยากลางประโยค)
+_PROD_INGREDIENT_RE = re.compile(r"[^(\n]{0,40}\(([^)\n]{0,60})\)")
+
+
+def _line_names_allergen(line: str, pairs: list[tuple[str, "re.Pattern"]]) -> str | None:
+    for name, rx in pairs:
+        if rx.search(line):
+            return name
+    return None
+
+
+def audit_allergy_lines(text: str, f: dict) -> str:
+    """ตรวจคำตอบทีละบรรทัด: บรรทัดที่ "เสนอ" ยาที่ผู้ป่วยแพ้ (ไม่มีคำเตือนกำกับ) -> แทนด้วยบรรทัดเตือน
+
+    ไม่แตะบรรทัดที่พูดถึงยานั้นในเชิงหลีกเลี่ยง/ห้ามใช้อยู่แล้ว (เช่น "หลีกเลี่ยง Ibuprofen เพราะแพ้")"""
+    alg = (f or {}).get("allergy") or {}
+    names = alg.get("drugs") or []
+    if not names or not text:
+        return text
+    pairs = _allergen_res(names)
+    # แพ้ NSAID ตัวหนึ่ง -> ตัวอื่นในกลุ่มก็ต้องไม่หลุดเป็นคำแนะนำ (ให้ตรงกับที่ DOSE CATALOG ตัดไปแล้ว)
+    # -- ใช้เฉพาะกลุ่ม NSAIDs เท่านั้น ส่วน beta-lactam ปล่อยให้กฎเรื่องชนิดการแพ้ (type 1 / non-type 1)
+    #    ตัดสินตามเดิม เพราะ cephalosporin ยังเป็นทางเลือกที่ถูกต้องในการแพ้แบบไม่รุนแรง
+    cross = ([(n, rx) for n, rx, tag in _ALLERGEN_RES if tag == "nsaid" and n not in names]
+             if "nsaid" in (alg.get("tags") or set()) else [])
+    out: list[str] = []
+    skip_deeper: int | None = None
+    for line in text.split(chr(10)):
+        item = _DRUG_ITEM_RE.match(line)
+        row = _TABLE_ROW_RE.match(line) if not item else None
+        # บรรทัดย่อย (เช่น "ขนาด: 200-400 mg") ที่ห้อยอยู่ใต้ยาที่เพิ่งถูกตัด -> ตัดตามไปด้วย
+        # ไม่งั้นขนาดยาของยาที่แพ้จะค้างอยู่ในคำตอบแบบไม่มีหัวเรื่อง
+        if skip_deeper is not None:
+            if item and len(item.group(1)) - len(item.group(1).lstrip()) > skip_deeper:
+                continue
+            skip_deeper = None
+        if not item and not row:
+            out.append(line)
+            continue
+        body = item.group(2) if item else row.group(1)
+        # ต้องเป็น "ชื่อยาที่ขึ้นต้นบรรทัด" เท่านั้น (ไม่ใช่ชื่อที่เอ่ยผ่านกลางประโยค เช่น
+        # "Paracetamol เป็นทางเลือกแทน NSAIDs" ซึ่งเป็นคำแนะนำที่ถูกต้องอยู่แล้ว)
+        head = body.lstrip(" *_~`[")
+        hit = next((n for n, rx in pairs if rx.match(head)), None)
+        why = f"มีประวัติแพ้ยา {hit}" if hit else ""
+        # ผลิตภัณฑ์ที่ระบุตัวยา NSAID ไว้ในวงเล็บหัวบรรทัด (เช่น "Strepsils Maxpro (ตัวยา: Flurbiprofen)")
+        prod = _PROD_INGREDIENT_RE.match(head) if cross else None
+        if not hit and (next((n for n, rx in cross if rx.match(head)), None)
+                        or (prod and _NSAID_INGREDIENT_RE.search(prod.group(1)))):
+            hit = "NSAIDs"
+            why = "แพ้ยาในกลุ่ม NSAIDs (cross-reactivity ระดับกลุ่ม)"
+        if not hit or _AVOID_CUE_RE.search(body):
+            out.append(line)
+            continue
+        warn = f"**ห้ามใช้ในผู้ป่วยรายนี้ -- {why}** (ระบบตัดออกอัตโนมัติเพื่อความปลอดภัย)"
+        if item:
+            drug = re.split(r"\s*(?::|\||--|\(|,)", head[:40])[0].strip(" *_")
+            out.append(f"{item.group(1)}~~{drug}~~ {warn}")
+            skip_deeper = len(item.group(1)) - len(item.group(1).lstrip())
+        else:
+            cells = row.group(1).split("|")
+            drug = cells[0].strip() or hit
+            out.append("| " + " | ".join([drug] + [warn if i == len(cells) - 1 else "-"
+                                                   for i in range(1, len(cells))]) + " |")
+    return chr(10).join(out)
+
+
+def mentions_allergen(text: str, f: dict) -> bool:
+    """(streaming) เคสที่มีประวัติแพ้ยา -> กันบรรทัดที่ยังไม่จบไว้ก่อนเสมอ
+
+    ไม่เช็คเฉพาะ "บรรทัดที่เห็นชื่อยาแล้ว" เพราะชื่อยาอาจถูกหั่นคนละ chunk ("- Ibu" / "profen: 400 mg")
+    ซึ่งจะหลุดออกไปก่อนที่ audit จะได้ตรวจ -- เรื่องความปลอดภัยจึงกันทั้งบรรทัดไปเลย
+    (ต้นทุน: รอจบบรรทัดเท่านั้น และเกิดเฉพาะเคสที่มีประวัติแพ้ยาจริง)"""
+    return bool(text and ((f or {}).get("allergy") or {}).get("drugs"))
+
+
 def _tri(text: str, pattern: str) -> bool | None:
     """True = มีอาการ, False = ระบุว่าไม่มี, None = ไม่ได้กล่าวถึง"""
     pos = neg = False
@@ -396,6 +624,8 @@ def extract_case_features(text: str) -> dict:
         g = infer_patient_group_from_query(text)
         f["group"] = g if g in ("adult", "pediatric") else None
     f["comorbid"] = [k for k in COMORBIDITY_LABELS if f.get(k)]
+    # ยาที่ผู้ป่วยแจ้งว่าแพ้ -- ต้องติดไปกับ features ทุกเทิร์น ไม่ใช่รู้เฉพาะเทิร์นที่ผู้ใช้พิมพ์คำว่า "แพ้"
+    f["allergy"] = allergy_profile(text)
     # สิ่งตรวจพบที่บ่งชี้ GABHS pharyngitis (ใช้ตัดสินว่าเคสนี้อยู่ในขอบเขตของเกณฑ์ Centor หรือไม่)
     f["tonsil_finding"] = _finding(text, _TONSIL_PATTERN, _TONSIL_NORMAL_RE)
     f["lymph_finding"] = _finding(text, _LYMPH_PATTERN, _LYMPH_NORMAL_RE)
@@ -470,7 +700,12 @@ def plan_classes(f: dict) -> dict[str, tuple[str, str]]:
     if fever or f.get("pain") or f.get("sore_throat") or f.get("sinus"):
         why = "มีไข้/ปวด/เจ็บคอ"
         if f.get("paracetamol_failed"):
-            why += " -- ใช้ Paracetamol แล้วไม่ดีขึ้น: พิจารณายาแก้ปวดกลุ่ม NSAIDs เป็นทางเลือก (ตรวจข้อห้าม/อายุ/น้ำหนัก)"
+            # ประวัติแพ้ NSAID ต้องมาก่อน "พาราไม่ได้ผล" เสมอ -- ไม่งั้นระบบจะชี้ไปที่กลุ่มยาที่ผู้ป่วยแพ้พอดี
+            # (feedback opt4 เคส 2: "แพ้ Ibuprofen + ใช้พาราไม่ดีขึ้น" -> เดิมดัน NSAIDs ขึ้นมาเป็นทางเลือก)
+            why += (" -- ใช้ Paracetamol แล้วไม่ดีขึ้น แต่**ผู้ป่วยมีประวัติแพ้ยากลุ่ม NSAIDs จึงห้ามใช้ NSAIDs แทน**: "
+                    "ให้เลี่ยงทั้งกลุ่มแล้วเสนอการดูแลแบบไม่ใช้ยา/ส่งต่อแพทย์"
+                    if "nsaid" in ((f.get("allergy") or {}).get("tags") or set()) else
+                    " -- ใช้ Paracetamol แล้วไม่ดีขึ้น: พิจารณายาแก้ปวดกลุ่ม NSAIDs เป็นทางเลือก (ตรวจข้อห้าม/อายุ/น้ำหนัก)")
         plan["fever_pain"] = ("fit", why)
     elif f.get("fever") is None:
         # ไม่ได้บอกเรื่องไข้ (ไม่ใช่ปฏิเสธไข้) -> เสนอยาแก้ปวด/ลดไข้เป็นยาใช้เมื่อมีอาการ (prn) ที่พบบ่อยในหวัด
@@ -768,13 +1003,15 @@ def build_catalog(f: dict, plan: dict[str, tuple[str, str]], *, full: bool = Fal
         not_ok: list[tuple[str, str]] = []
         rare: list[str] = []
         cur_tier = None
+        n_listed = 0
         # ยาแก้แพ้รุ่นที่ 1 (ง่วง/ลดสารคัดหลั่งแรง) ไว้ท้ายกลุ่มยาหลัก -> รุ่นที่ 2 ขึ้นก่อนตาม feedback อาจารย์
         for d in sorted(members, key=lambda x: (_TIER_ORDER[_tier(x, cls)], 1 if x.get("first_gen") else 0)):
             ok, why = _eligible(d, f)
             if not ok:
                 not_ok.append((d["display"], why))
                 continue
-            blocked = class_drug_block(d, cls, f)
+            # ประวัติแพ้ยามาก่อนข้อพิจารณาอื่นเสมอ (ห้ามหลุดเป็นตัวเลือก แม้กลุ่มยานั้นจะเหมาะกับอาการ)
+            blocked = allergy_drug_block(d, f) or class_drug_block(d, cls, f)
             if blocked:
                 not_ok.append((d["display"], blocked))
                 continue
@@ -791,8 +1028,15 @@ def build_catalog(f: dict, plan: dict[str, tuple[str, str]], *, full: bool = Fal
                 cur_tier = tier
             lines.append(_drug_line(d, cls, f, full=full))
             listed_in[d["name"]] = CLASS_LABELS[cls]
+            n_listed += 1
             if d not in used:
                 used.append(d)
+        # ประวัติแพ้ยาอาจตัดยาในกลุ่มออกจนหมด (เช่น แพ้ทั้ง Paracetamol และ NSAIDs) -> ต้องบอกให้ชัด
+        # ไม่งั้นโมเดลจะไปหยิบชื่อยาจากที่อื่นมาเติมเอง หรือเงียบไปทั้งหัวข้อ
+        if n_listed == 0 and not_ok:
+            lines.append("  **ไม่มียาในกลุ่มนี้ที่ปลอดภัยสำหรับผู้ป่วยรายนี้เลย** -- ห้ามเสนอยาในกลุ่มนี้ "
+                         "ให้เขียนว่าเลี่ยงทั้งกลุ่มพร้อมเหตุผล แล้วเสนอทางเลือกที่ไม่ใช้ยา "
+                         "และแนะนำให้ปรึกษาแพทย์เพื่อเลือกยาที่ปลอดภัยแทน (ห้ามหยิบชื่อยานอก DOSE CATALOG มาเติมเอง)")
         if rare:
             lines.append("  (มีในตารางแต่ไม่ใช่ตัวเลือกทั่วไปสำหรับอาการ URI -- ไม่ต้องแนะนำ เว้นแต่ผู้ใช้ขอดูทั้งหมด: "
                          + ", ".join(rare) + ")")
@@ -958,6 +1202,35 @@ def is_case_description(text: str, f: dict | None = None) -> bool:
     if n_uri == 0:
         return False
     return bool(_PATIENT_RE.search(text or "")) or (n_uri + (1 if f.get("pain") else 0)) >= 2
+
+
+# ─── "ขอดูตัวเลือกยา" != "บรรยายเคสใหม่" (Phase2 opt4) ───────────────────────
+# feedback: แค่เปลี่ยนสำนวนคำถามต่อเนื่องเล็กน้อย บริบทเคสเดิมก็หายไปทั้งก้อน
+# สาเหตุ: ชื่อกลุ่มยามีคำอาการอยู่ในตัว ("ยาแก้ปวดลดไข้" -> ระบบอ่านว่าเจอ "ปวด" + "ไข้")
+# -> ข้อความอย่าง "ขอตัวเลือกยาแก้ปวดลดไข้ทั้งหมดที่มีในร้าน" ถูกนับเป็น "คำบรรยายเคสของผู้ป่วยรายใหม่"
+#    แล้วระบบก็ทิ้งเคสเดิม (อายุ/ประวัติแพ้ยา) ไปซักประวัติใหม่ตั้งแต่ต้น
+# -> ถ้าอาการทั้งหมดในข้อความอยู่ใน "ชื่อกลุ่มยา" เท่านั้น และไม่มีคำบ่งชี้ตัวผู้ป่วย = เป็นคำขอดูยา ไม่ใช่เคสใหม่
+_DRUG_CLASS_PHRASE_RE = re.compile(
+    r"ยา(?:แก้|ลด|บรรเทา(?:อาการ)?|ระงับ|ละลาย|ขับ|พ่น|อม|กลั้ว|ต้าน|หยอด)?"
+    r"(?:ปวด(?:หัว|ศีรษะ|เมื่อย)?|ไข้|ไอ|แพ้|น้ำมูก|คัดจมูก|เจ็บคอ|เสมหะ|หวัด|อักเสบ|คอ|จมูก|ปฏิชีวนะ)"
+    r"(?:[ /\-,]{0,2}(?:แก้|ลด|บรรเทา(?:อาการ)?|ละลาย|ขับ|ระงับ)"
+    r"(?:ปวด(?:หัว|ศีรษะ|เมื่อย)?|ไข้|ไอ|แพ้|น้ำมูก|คัดจมูก|เจ็บคอ|เสมหะ|หวัด|อักเสบ))*")
+_DRUG_REQUEST_CUE_RE = re.compile(
+    r"ขอ|อยาก(?:รู้|ได้|ทราบ)|แนะนำ|มีอะไรบ้าง|มียาอะไร|ตัวไหน|ตัวเลือก|ทางเลือก|ในร้าน|ทั้งหมด|"
+    r"ชื่อยา|ขนาดยา|ดูยา|list|option", re.IGNORECASE)
+
+
+def is_drug_request_only(text: str) -> bool:
+    """ข้อความเป็น "คำขอดูตัวเลือกยา" ล้วนๆ (ไม่ใช่การบรรยายเคสผู้ป่วยรายใหม่)
+
+    เงื่อนไขครบทั้งสามข้อ: ไม่มีคำบ่งชี้ตัวผู้ป่วย + มีคำขอดูยา + อาการที่ตรวจพบมาจากชื่อกลุ่มยาเท่านั้น"""
+    text = text or ""
+    if _PATIENT_RE.search(text) or not _DRUG_REQUEST_CUE_RE.search(text):
+        return False
+    if not has_uri_symptom(extract_case_features(text)):
+        return False        # ไม่มีอาการอยู่แล้ว -> ไม่ใช่เคสตั้งแต่ต้น ไม่ต้องใช้ตัวช่วยนี้
+    masked = _DRUG_CLASS_PHRASE_RE.sub(" ", text)
+    return not has_uri_symptom(extract_case_features(masked))
 
 
 def assess_history(text: str, f: dict) -> str:
@@ -1538,6 +1811,140 @@ def fix_form_labels(text: str) -> str:
         if new_label and new_label != label.strip():
             lines[i] = ln[: m.start(2)] + new_label + ln[m.end(2):]
     return "\n".join(lines)
+
+
+# ─── Expert Opinion block integrity gateway (Phase2 opt4) ────────────────────
+# feedback หลัง deploy: "บล็อก Expert Opinion บางเคสมีแต่กรอบสีเขียวกับหัวข้อ เนื้อหาหายไป"
+# สาเหตุ: ฝั่งเว็บห่อบล็อกนี้โดยไล่เก็บ element ถัดจากหัวข้อ แล้ว "หยุดทันที" เมื่อเจอหัวข้อย่อยตัวหนา
+# ที่ขึ้นต้นด้วยคำว่า "ยา" (เช่น `**ยาทางเลือกแรก (First-line):**`) เพราะถือว่าเป็นหัวข้อยาของส่วนปกติ
+# -> ถ้าโมเดลเขียนหัวข้อย่อยนั้นเป็น "บรรทัดแรก" ใต้หัวข้อบล็อก ก็ไม่มีอะไรถูกเก็บเข้ากรอบเลย = กรอบว่าง
+# (อีกกรณี: โมเดลขึ้นหัวข้อบล็อกแล้วไม่เขียนเนื้อหาต่อเลย -> กรอบว่างเช่นกัน)
+#
+# แก้ที่ต้นทาง: ประกันว่าใต้หัวข้อบล็อกต้องมีเนื้อหาให้เก็บเข้ากรอบเสมอ
+#
+# **ที่มาของเนื้อหา Expert Opinion (ห้ามเปลี่ยน -- ระบุไว้ตั้งแต่โจทย์ Phase2_optimize_1.md):**
+# Expert Opinion ทั้งหมด **มาจาก AAFP** ไม่ใช่ข้อความที่ระบบแต่งขึ้นเอง มีสองแหล่งเท่านั้น
+#   - ไซนัสอักเสบ: "Note on Thai Clinical Practice" **ถูก ingest เข้า embedding แล้ว**
+#     (chunk AAFP_0021 = AAFP หน้า 5) -> ปกติโมเดลดึงจาก Context เองพร้อม [Ref: AAFP, หน้า 5]
+#   - เจ็บคอ/คออักเสบ: บล็อก "RDU Practice" อยู่ติด TABLE 2 Modified Centor ใน AAFP หน้า 4
+#     แต่ **ไม่ได้ ingest** (โจทย์ให้ใส่เป็น prompt แทน เพราะ ingest แล้ว embedding อาจเพี้ยน)
+#     -> อยู่ในหัวข้อ EXPERT OPINION ของ SYSTEM PROMPT พร้อม [Ref: AAFP, หน้า 4]
+#
+# ดังนั้นประโยคที่ gateway นี้เติมได้ มีเพียง **ถ้อยคำต้นฉบับของสองแหล่งนี้** เท่านั้น
+# ถ้าเคสไม่เข้าสองหัวข้อนี้ = ไม่มีฐาน Expert Opinion ใน AAFP -> **ตัดหัวข้อที่ค้างทิ้ง**
+# ห้ามแต่งแนวปฏิบัติขึ้นมาใหม่เด็ดขาด (ตรงกับกฎใน SYSTEM PROMPT: "ห้ามแต่งแนวปฏิบัติไทยเกิน
+# จากที่ระบุในหัวข้อนี้/ใน Context")
+_EXPERT_HEAD_RE = re.compile(r"^[ \t]{0,3}(?:#{1,4}[ \t]*)?(?:\*\*)?[^\n*]*ปฏิบัติจริง[^\n*]*(?:\*\*)?[ \t]*:?[ \t]*$")
+_BOLD_ONLY_LINE_RE = re.compile(r"^[ \t]{0,3}\*\*([^\n*]+)\*\*[ \t]*$")
+# บรรทัดที่ทำให้ฝั่งเว็บ "ปิดกรอบ" ทั้งที่ยังไม่ได้เก็บอะไรเข้าไป = กรอบว่างจริง
+# (หัวข้อจริง `###` / หัวข้อยาแบบ "3a. ยา..." / "■ ...")
+# ส่วนหัวข้อย่อยตัวหนาที่ขึ้นต้นด้วย "ยา" ฝั่งเว็บรับไปแล้วด้วยตัวนับ absorbed ใน applyExpertBlocks()
+# จึง **ไม่นับว่าว่าง** -> ไม่ต้องเติมอะไรทับข้อความของโมเดล
+_EXPERT_STOPPER_RE = re.compile(r"^[ \t]{0,3}(?:#{1,4}[ \t]|\d+[a-zA-Z]\.[ \t]*ยา|■)")
+_TREATMENT_SUBLABEL_RE = re.compile(r"^ยา\S")          # ตรงกับ TREATMENT_SUBLABEL_PATTERN ฝั่งเว็บ
+# (ถ้อยคำต้นฉบับจาก AAFP -- คัดมาตรงตัว ไม่เรียบเรียงใหม่, คู่กับหน้าที่ต้องอ้างตาม SYSTEM PROMPT)
+_EXPERT_LEADS: dict[str, tuple[str, str]] = {
+    # RDU Practice ข้าง TABLE 2 Modified Centor (AAFP หน้า 4) -- ไม่ได้ ingest, อยู่ใน SYSTEM PROMPT
+    "pharyngitis": ("**จ่ายยาปฏิชีวนะในผู้ป่วยโรคเจ็บคอ/คออักเสบ เมื่อมีคะแนนจาก Centor criteria หรือ "
+                    "McIsaac score เท่ากับ 3 หรือ 4 แต้ม หรือ 5 แต้ม และหลีกเลี่ยงการจ่ายยาปฏิชีวนะ"
+                    "ในผู้ที่ได้คะแนนน้อยกว่า 3 แต้ม**", "4"),
+    # Note on Thai Clinical Practice (AAFP หน้า 5) -- ingest แล้ว: chunk AAFP_0021
+    "sinusitis": ("**ไซนัสอักเสบ แม้มีอาการติดต่อกันไม่ถึง 10 วัน สามารถพิจารณาจ่ายยาปฏิชีวนะได้เลย "
+                  "ถ้ามีอาการและอาการแสดงเข้าได้กับไซนัสอักเสบชัดเจน ขึ้นกับดุลพินิจของเภสัชกร**", "5"),
+}
+# เคสที่ไม่เข้าสองหัวข้อข้างบน = ไม่มีแนวปฏิบัติไทยเฉพาะทางใน AAFP ให้อ้าง
+# -> ใส่ได้เฉพาะ "ประโยคกรอบความคิด" (Guideline เป็นหลัก + หน้าร้านใช้ดุลพินิจ) ซึ่ง **ไม่ใช่คำแนะนำ
+# ทางคลินิกใหม่** ไม่มีชื่อยา ไม่มีขนาดยา ไม่มีเกณฑ์ตัดสิน จึงไม่กระทบเนื้อหาหลัก และไม่มี [Ref]
+# เพราะไม่ได้ยกข้อความจาก AAFP มาอ้าง
+_EXPERT_LEAD_GENERIC = ("ให้ยึดคำแนะนำตาม Guideline ข้างต้นเป็นหลัก ส่วนการตัดสินใจหน้าร้าน "
+                        "ให้พิจารณาตามดุลพินิจของเภสัชกรร่วมกับข้อมูลของผู้ป่วยรายนี้")
+
+
+def _expert_lead(f: dict | None, ctx_pages: dict | None = None) -> str:
+    """ประโยคนำของบล็อก Expert Opinion ตามชนิดเคส -- "" = เคสนี้ไม่มีฐาน Expert Opinion ใน AAFP
+
+    ใส่ [Ref: AAFP, หน้า N] **เฉพาะเมื่อหน้านั้นอยู่ใน Context จริง** (ctx_pages ชุดเดียวกับตัวตรวจ
+    citation) -- ถ้าไม่อยู่ ให้เขียนประโยคเปล่าๆ ดีกว่าอ้างหน้าที่ Context ไม่ได้ให้มา
+    """
+    f = f or {}
+    key = ""
+    if f.get("sinus") and f.get("group") != "pediatric":
+        key = "sinusitis"
+    else:
+        try:
+            if centor_scope(f)[0]:
+                key = "pharyngitis"
+        except Exception:  # noqa: BLE001
+            return ""
+    if not key:
+        return _EXPERT_LEAD_GENERIC
+    lead, page = _EXPERT_LEADS[key]
+    if page in ((ctx_pages or {}).get("AAFP") or []):
+        lead += f" [Ref: AAFP, หน้า {page}]"
+    return lead
+
+
+def _expert_body_missing(lines: list[str], i: int) -> bool:
+    """ใต้หัวข้อบล็อก Expert Opinion (บรรทัดที่ i) "ไม่มีเนื้อหาให้เก็บเข้ากรอบเลย" หรือไม่"""
+    for ln in lines[i + 1:]:
+        if not ln.strip():
+            continue
+        if _EXPERT_STOPPER_RE.match(ln):
+            return True
+        m = _BOLD_ONLY_LINE_RE.match(ln)
+        if not m:
+            return False        # มีประโยค/รายการ -> ฝั่งเว็บเก็บเข้ากรอบได้ ไม่ต้องแตะ
+        # ตัวหนาที่ขึ้นต้นด้วย "ยา" -> ฝั่งเว็บเก็บเข้ากรอบแล้ว (absorbed) = ไม่ว่าง
+        # ตัวหนาแบบอื่นจะถูกเลื่อนเป็นหัวข้อ (###) -> ปิดกรอบตั้งแต่ยังไม่เก็บอะไร = ว่างจริง
+        return not _TREATMENT_SUBLABEL_RE.match(m.group(1).strip())
+    return True                 # ไม่มีบรรทัดถัดไปเลย
+
+
+def ensure_expert_block(text: str, f: dict | None = None, ctx_pages: dict | None = None) -> str:
+    """กันบล็อก "ในทางปฏิบัติจริง (บริบทร้านยาไทย)" ไม่ให้กลายเป็นกรอบเขียวเปล่า
+
+    เคสที่เข้าหัวข้อ Expert Opinion ของ AAFP (เจ็บคอ / ไซนัสผู้ใหญ่) -> เติม "ถ้อยคำต้นฉบับจาก AAFP"
+    เคสอื่น -> เติม "ประโยคกรอบความคิด" (Guideline เป็นหลัก + หน้าร้านใช้ดุลพินิจ) ซึ่งไม่มีชื่อยา
+    ไม่มีขนาดยา ไม่มีเกณฑ์ตัดสิน จึงไม่กระทบเนื้อหาหลักของคำตอบ
+    ทำงานเฉพาะตอนที่บล็อกจะว่างจริงๆ เท่านั้น -- คำตอบที่เขียนถูกอยู่แล้วจะไม่ถูกแตะเลย
+    """
+    if not text or "ปฏิบัติจริง" not in text:
+        return text
+    lines = text.split(chr(10))
+    out: list[str] = []
+    lead = None
+    for i, ln in enumerate(lines):
+        is_head = bool(_EXPERT_HEAD_RE.match(ln)) and "ปฏิบัติจริง" in ln and (
+            # ต้องเป็น "บรรทัดหัวข้อของบล็อก" จริงๆ ไม่ใช่ประโยคที่บังเอิญมีคำนี้
+            ln.lstrip().startswith("#") or bool(_BOLD_ONLY_LINE_RE.match(ln)))
+        if not is_head or not _expert_body_missing(lines, i):
+            out.append(ln)
+            continue
+        if lead is None:
+            lead = _expert_lead(f, ctx_pages)
+        if not lead:
+            continue            # ตัดหัวข้อที่ค้างทิ้ง (ไม่เติมเนื้อหาที่ไม่มีที่มาใน AAFP)
+        out += [ln, "", lead]
+    return chr(10).join(out)
+
+
+def open_expert_head_start(text: str) -> int | None:
+    """(streaming) ถ้าท้ายข้อความเป็นหัวข้อบล็อก Expert Opinion ที่ยังไม่เห็นบรรทัดเนื้อหาถัดไป
+    -> คืนตำแหน่งเริ่มบรรทัดนั้น เพื่อกันไว้ก่อน (ต้องเห็นบรรทัดถัดไปจึงตัดสินได้ว่ากรอบจะว่างหรือไม่)"""
+    if not text or "ปฏิบัติจริง" not in text:
+        return None
+    lines = text.split(chr(10))
+    for i in range(len(lines) - 1, -1, -1):
+        ln = lines[i]
+        if "ปฏิบัติจริง" not in ln or not _EXPERT_HEAD_RE.match(ln):
+            continue
+        if not (ln.lstrip().startswith("#") or _BOLD_ONLY_LINE_RE.match(ln)):
+            return None
+        # ต้องเห็น "บรรทัดเนื้อหาที่จบแล้ว" (มี \n ปิดท้าย) จึงตัดสินได้ -- บรรทัดสุดท้ายยังไม่จบ ไม่นับ
+        if any(x.strip() for x in lines[i + 1:-1]):
+            return None
+        return sum(len(x) + 1 for x in lines[:i])
+    return None
 
 
 def drugs_cited_by_page(text: str) -> dict[str, list[str]]:
