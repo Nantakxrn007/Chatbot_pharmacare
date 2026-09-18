@@ -302,6 +302,8 @@ _FEATURE_PATTERNS: dict[str, str] = {
     "sore_throat": r"เจ็บคอ|คอแดง|ระคาย(?:เคือง)?คอ|คออักเสบ|pharyngitis|ทอนซิล|tonsil|กลืน(?:เจ็บ|ลำบาก)|เยื่อบุคอ",
     "hoarse": r"เสียงแหบ|laryngitis|กล่องเสียงอักเสบ|สายเสียง",
     "ear": r"ปวดหู|หูอื้อ|น้ำหนวก|หูชั้นกลาง|otitis|\bAOM\b",
+    # ฝาปิดกล่องเสียงอักเสบ -- คนละโรคกับ laryngitis (ภาวะฉุกเฉิน) และไม่ใช่ pharyngitis เช่นกัน
+    "epiglottitis": r"epiglott|ฝาปิดกล่องเสียง|stridor|เสียงฮึด|น้ำลายไหลยืด|drooling|muffled\s*voice|เสียง(?:พูด)?อู้อี้",
     # "จาม" เฉยๆ พบได้ในหวัด -> ไม่นับเป็นภูมิแพ้ (ต้องมีคัน/จามบ่อย/ภูมิแพ้/เป็นๆหายๆ/สิ่งกระตุ้น)
     "allergic": r"คันจมูก|คันตา|จามบ่อย|จามติดต่อ|จามเป็นชุด|ภูมิแพ้|allerg|เป็นๆ\s*หายๆ|ฝุ่น|เกสร",
     "sinus": r"ไซนัส|sinus|ABRS|ปวดโหนก|ปวด(?:บริเวณ)?ใบหน้า|ปวดหน้า(?!ท้อง)|ปวด(?:แน่น)?หน้าผาก|แน่นหน้าผาก|facial\s*pain",
@@ -394,6 +396,9 @@ def extract_case_features(text: str) -> dict:
         g = infer_patient_group_from_query(text)
         f["group"] = g if g in ("adult", "pediatric") else None
     f["comorbid"] = [k for k in COMORBIDITY_LABELS if f.get(k)]
+    # สิ่งตรวจพบที่บ่งชี้ GABHS pharyngitis (ใช้ตัดสินว่าเคสนี้อยู่ในขอบเขตของเกณฑ์ Centor หรือไม่)
+    f["tonsil_finding"] = _finding(text, _TONSIL_PATTERN, _TONSIL_NORMAL_RE)
+    f["lymph_finding"] = _finding(text, _LYMPH_PATTERN, _LYMPH_NORMAL_RE)
     return f
 
 
@@ -449,7 +454,7 @@ _U4 = "เด็กอายุต่ำกว่า 4 ปี ไม่แนะ
 
 
 def plan_classes(f: dict) -> dict[str, tuple[str, str]]:
-    """คืน {class: (status, reason)} -- status: fit | conditional | avoid"""
+    """คืน {class: (status, reason)} -- status: fit | partial (กลุ่มใช้ได้แต่บางตัวในกลุ่มไม่เหมาะ) | conditional | avoid"""
     plan: dict[str, tuple[str, str]] = {}
     # ต้องมีอาการ URI อย่างน้อย 1 อย่าง (ปวดอย่างเดียว เช่น ปวดท้อง/ปวดหลัง = นอกขอบเขต ไม่ใช่งานของ gateway นี้)
     if not has_uri_symptom(f):
@@ -479,8 +484,16 @@ def plan_classes(f: dict) -> dict[str, tuple[str, str]]:
         if u4 and not allergic:
             plan["antihistamine"] = ("avoid", _U4)
         elif thick and not allergic:
-            plan["antihistamine"] = ("avoid", "น้ำมูกข้นเหนียว -- ยาแก้แพ้ (โดยเฉพาะรุ่นที่ 1 เช่น Chlorpheniramine, "
-                                     "Brompheniramine) ลดสารคัดหลั่งทำให้น้ำมูกเหนียวข้นขึ้น -> แนะนำล้างจมูกด้วยน้ำเกลือแทน")
+            # น้ำมูกข้นเหนียว: ตัด "เฉพาะรุ่นที่ 1" ออก (ลดสารคัดหลั่งแรงจนน้ำมูกแห้งติดโพรงจมูก)
+            # ส่วนรุ่นที่ 2 ยังใช้ลดน้ำมูกได้ -> ห้ามเหมารวมทั้งกลุ่มว่า "ไม่เหมาะกับเคสนี้"
+            g1 = class_drug_names("antihistamine", first_gen=True)
+            g1_txt = f" ในตารางมี {len(g1)} ตัว ได้แก่ {', '.join(g1)}" if g1 else ""
+            plan["antihistamine"] = ("partial", "น้ำมูกข้นเหนียว -- **ยาแก้แพ้รุ่นที่ 1 ไม่เหมาะกับเคสนี้ทุกตัว**"
+                                     + g1_txt + " (**ถ้าจะกล่าวถึงในคำตอบ ต้องเอ่ยชื่อให้ครบทุกตัว ห้ามยกมาแค่ตัวเดียว**) "
+                                     "เพราะลดสารคัดหลั่งแรงจนน้ำมูกข้นเหนียวแห้งติดในโพรงจมูก "
+                                     "(รุ่นที่ 1 เหมาะกับเคสน้ำมูกใสเหลว/ไหลเป็นสายไม่หยุด); "
+                                     "**รุ่นที่ 2 (ง่วงน้อย) ยังใช้ลดน้ำมูกในเคสนี้ได้** โดยแนะนำให้ใช้ควบคู่กับการล้างจมูกด้วยน้ำเกลือ "
+                                     "-- ในรายการด้านล่างระบบตัดรุ่นที่ 1 ออกให้แล้ว ให้เสนอเฉพาะตัวที่แสดงไว้")
         elif f.get("runny_char") == "clear" or allergic:
             plan["antihistamine"] = ("fit", "น้ำมูกใส/ไหล" if not allergic else "อาการภูมิแพ้จมูก (คัน/จาม/น้ำมูกใส)")
         else:
@@ -541,12 +554,39 @@ def plan_classes(f: dict) -> dict[str, tuple[str, str]]:
     return plan
 
 
+def class_drug_names(cls: str, *, first_gen: bool | None = None) -> list[str]:
+    """ชื่อยาทุกตัวของกลุ่มนั้นในตาราง Dose (เรียงตามหน้า) -- ใช้เขียนข้อความ "ได้แก่ ..." ให้ครบทุกตัวจริง
+
+    ไม่ hardcode ชื่อยาไว้ในข้อความ: ถ้าตาราง Dose เพิ่ม/ลดยา ข้อความก็เปลี่ยนตามเอง
+    (feedback อาจารย์: ยก "เช่น <ยา 1 ตัว>" ทั้งที่มีหลายตัวเข้าข่าย -> ผู้อ่าน bias ไปที่ตัวที่ยกมา)"""
+    out: list[str] = []
+    for d in load_formulary():
+        if cls not in d["classes"]:
+            continue
+        if first_gen is not None and bool(d.get("first_gen")) != first_gen:
+            continue
+        if d["display"] not in out:
+            out.append(d["display"])
+    return out
+
+
+def class_drug_block(d: dict, cls: str, f: dict) -> str:
+    """ข้อห้ามระดับ 'ตัวยาในกลุ่ม' (กลุ่มยังใช้ได้ แต่ยาตัวนี้ไม่เหมาะ) -> เหตุผล, "" = ใช้ได้
+    ใช้กับกรณีที่เหมารวมทั้งกลุ่มไม่ได้ เช่น น้ำมูกข้นเหนียวห้ามเฉพาะ antihistamine รุ่นที่ 1
+    ส่วนรุ่นที่ 2 ยังใช้ลดน้ำมูกได้ (feedback อาจารย์ Phase2 opt3)"""
+    if (cls == "antihistamine" and d.get("first_gen")
+            and f.get("runny_char") == "thick" and not f.get("allergic")):
+        return ("ยาแก้แพ้รุ่นที่ 1 ลดสารคัดหลั่งแรง ทำให้น้ำมูกข้นเหนียวแห้งติดในโพรงจมูก "
+                "-- เหมาะกับน้ำมูกใสเหลว/ไหลเป็นสาย ไม่ใช่เคสน้ำมูกข้นเหนียวแบบนี้")
+    return ""
+
+
 def practical_options(f: dict) -> list[str]:
     """ทางเลือกที่ไม่ใช้ยา/พฤติกรรมปฏิบัติจริงหน้าร้าน (Expert practice)"""
     out: list[str] = []
     if f.get("runny_char") == "thick" or f.get("sinus") or f.get("congestion"):
         out.append("ล้างจมูกด้วยน้ำเกลือ (Normal saline nasal irrigation) -- ช่วยระบายน้ำมูกข้นเหนียว/ไซนัส "
-                   "เหมาะกว่ายาแก้แพ้ในเคสน้ำมูกข้น")
+                   "ใช้ควบคู่กับยาลดน้ำมูก (ถ้าจำเป็น) และเหมาะกว่ายาแก้แพ้รุ่นที่ 1 ในเคสน้ำมูกข้น")
     if f.get("sore_throat"):
         out.append("กลั้วคอด้วยน้ำเกลืออุ่น -- ทางเลือกง่าย ปลอดภัย ใช้ได้เป็นพื้นฐาน (ไม่จำเป็นต้องใช้ยากลั้วคอเสมอ)")
     if f.get("hoarse"):
@@ -698,7 +738,7 @@ def build_catalog(f: dict, plan: dict[str, tuple[str, str]], *, full: bool = Fal
         "[คลังยาตามอาการ -- DOSE CATALOG] Source: Dose | Type: DOSE_TABLE (ระบบคัดจากตาราง Dose ตามอาการของเคสนี้)",
         f"อาการที่ระบบตรวจพบ: {describe_features(f)}",
         f"กลุ่มผู้ป่วยสำหรับขนาดยา: {group_label}",
-        "วิธีใช้: ใช้เฉพาะกลุ่มที่ 'เหมาะกับเคสนี้/ขึ้นกับข้อมูลที่ยังไม่ทราบ' -- เสนอ **ตัวเลือกให้ครบทุกตัวที่อยู่ในกลุ่มนั้นและเหมาะกับผู้ป่วยรายนี้** "
+        "วิธีใช้: ใช้เฉพาะกลุ่มที่ 'เหมาะกับเคสนี้/ใช้ได้เฉพาะบางตัวในกลุ่ม/ขึ้นกับข้อมูลที่ยังไม่ทราบ' -- เสนอ **ตัวเลือกให้ครบทุกตัวที่อยู่ในกลุ่มนั้นและเหมาะกับผู้ป่วยรายนี้** "
         "(ไม่จำกัด 2-4 ตัว แต่ต้องถูกต้อง) เรียงตามลำดับ: ยาหลัก -> ทางเลือกในกลุ่ม -> ผลิตภัณฑ์/ทางเลือกเสริม; เรียกหมวดตาม [รูปแบบ] ของยา "
         "(ยาพ่นคอ/ยาอม/ยากลั้วคอ ห้ามปนหมวด) และผลิตภัณฑ์ต้องมีตัวยา/สารสำคัญกำกับ + ขนาดยา + [Ref: Dose, หน้า N] (N = Page ท้ายชื่อยา) "
         "-- ขนาดยาด้านล่างเป็นข้อความตัดตอนตรงจากตาราง (ตัวเลขตรงต้นฉบับ)",
@@ -721,16 +761,22 @@ def build_catalog(f: dict, plan: dict[str, tuple[str, str]], *, full: bool = Fal
             names = ", ".join(dict.fromkeys(d["display"] for d in members))
             avoided.append(f"  - {CLASS_LABELS[cls]}: {names} -- เหตุผล: {reason}")
             continue
-        head = "เหมาะกับเคสนี้" if status == "fit" else "ขึ้นกับข้อมูลที่ยังไม่ทราบ"
+        head = ("เหมาะกับเคสนี้" if status == "fit" else
+                "ใช้ได้เฉพาะบางตัวในกลุ่ม (ระบบคัดตัวที่ไม่เหมาะออกให้แล้ว)" if status == "partial" else
+                "ขึ้นกับข้อมูลที่ยังไม่ทราบ")
         lines.append(f"\n■ {CLASS_LABELS[cls]} -- {head}: {reason}")
-        not_ok: list[str] = []
+        not_ok: list[tuple[str, str]] = []
         rare: list[str] = []
         cur_tier = None
         # ยาแก้แพ้รุ่นที่ 1 (ง่วง/ลดสารคัดหลั่งแรง) ไว้ท้ายกลุ่มยาหลัก -> รุ่นที่ 2 ขึ้นก่อนตาม feedback อาจารย์
         for d in sorted(members, key=lambda x: (_TIER_ORDER[_tier(x, cls)], 1 if x.get("first_gen") else 0)):
             ok, why = _eligible(d, f)
             if not ok:
-                not_ok.append(f"{d['display']} ({why})")
+                not_ok.append((d["display"], why))
+                continue
+            blocked = class_drug_block(d, cls, f)
+            if blocked:
+                not_ok.append((d["display"], blocked))
                 continue
             tier = _tier(d, cls)
             if tier == "rare" and not full:
@@ -751,9 +797,19 @@ def build_catalog(f: dict, plan: dict[str, tuple[str, str]], *, full: bool = Fal
             lines.append("  (มีในตารางแต่ไม่ใช่ตัวเลือกทั่วไปสำหรับอาการ URI -- ไม่ต้องแนะนำ เว้นแต่ผู้ใช้ขอดูทั้งหมด: "
                          + ", ".join(rare) + ")")
         if not_ok:
-            lines.append("  (มีในตารางแต่ไม่แนะนำในเคสนี้ -- เหตุผลจากข้อมูลในตาราง: " + "; ".join(not_ok) + ")")
+            # รวมยาที่ "เหตุผลเดียวกัน" ไว้บรรทัดเดียว -> โมเดลเห็นเป็นชุดและคัดลอกชื่อไปครบ
+            # (เดิมไล่ทีละตัวพร้อมเหตุผลซ้ำๆ -> โมเดลย่อเหลือ "เช่น <ตัวแรก>" ตัวเดียว = bias)
+            groups: dict[str, list[str]] = {}
+            for name, why in not_ok:
+                groups.setdefault(why, []).append(name)
+            parts = [f"{', '.join(names)} -- {why}" for why, names in groups.items()]
+            lines.append("  (มีในตารางแต่ไม่แนะนำในเคสนี้ -- **ถ้าจะกล่าวถึงในคำตอบ ต้องเอ่ยชื่อให้ครบทุกตัวของแต่ละเหตุผล "
+                         "ห้ามยกมาแค่ตัวเดียว**; เหตุผลจากข้อมูลในตาราง: " + "; ".join(parts) + ")")
     if avoided:
-        lines.append("\n■ ไม่เหมาะกับเคสนี้ (ห้ามแนะนำเป็นการรักษา -- ถ้าจะกล่าวถึง ให้บอกว่าไม่แนะนำเพราะอะไร):")
+        lines.append("\n■ ไม่เหมาะกับเคสนี้ (ห้ามแนะนำเป็นการรักษา) -- **บังคับ: ถ้าคำตอบนี้ลงรายชื่อยา "
+                     "ต้องปิดท้ายหัวข้อ 3b ด้วยหัวข้อย่อย \"กลุ่มที่ไม่เหมาะกับเคสนี้\" ที่ไล่ครบทุกหมวดด้านล่าง "
+                     "หมวดละ 1 บรรทัด พร้อมชื่อยาครบทุกตัว + เหตุผลสั้นๆ ห้ามข้ามหมวดใด และ "
+                     "ห้ามนับโน้ตในวงเล็บใต้กลุ่มยาที่แนะนำว่าทำข้อนี้แล้ว**:")
         lines += avoided
     prac = practical_options(f)
     if prac:
@@ -761,6 +817,67 @@ def build_catalog(f: dict, plan: dict[str, tuple[str, str]], *, full: bool = Fal
                      "ไม่ใช่ยาในตาราง Dose จึงห้ามอ้าง [Ref: Dose]):")
         lines += [f"  - {p}" for p in prac]
     return "\n".join(lines), used
+
+
+# ─── "กลุ่มที่ไม่เหมาะกับเคสนี้" -- backstop แบบ deterministic ────────────────────────
+# feedback อาจารย์: หัวข้อนี้ "หายไป" จากคำตอบ (วัดแล้วหาย 3 ใน 4 ครั้ง) เพราะกฎใน prompt เดิม
+# เป็นเงื่อนไข ("ถ้าจะกล่าวถึง") + พอย้ายยาแก้แพ้ไปเป็น partial โมเดลก็ถือว่าโน้ตในวงเล็บพอแล้ว
+# -> ถ้าคำตอบลงรายชื่อยาแล้วแต่ยังไม่พูดถึงกลุ่มที่ห้าม ให้ระบบเติมหัวข้อนี้ให้เอง
+_DOSE_REF_RE = re.compile(r"\[Ref:\s*Dose[^\]]*?หน้า\s*\d+")
+_AVOID_ANCHORS = ("หากต้องการดูตัวเลือกอื่นในกลุ่ม", "หากต้องการทราบว่ายาที่มีในร้าน",
+                  "สรุปตารางขนาดยา", "**4.", "4. คำแนะนำดูแลตัวเอง")
+
+
+def avoided_groups(plan: dict[str, tuple[str, str]]) -> list[tuple[str, list[str], str]]:
+    """[(ชื่อหมวด, [ชื่อยาครบทุกตัว], เหตุผล)] ของกลุ่มที่ gateway ตัดสินว่า 'ไม่เหมาะกับเคสนี้'"""
+    out: list[tuple[str, list[str], str]] = []
+    formulary = load_formulary()
+    for cls in CLASS_ORDER:
+        if cls not in plan or plan[cls][0] != "avoid":
+            continue
+        names = list(dict.fromkeys(d["display"] for d in formulary if cls in d["classes"]))
+        if names:
+            out.append((CLASS_LABELS[cls], names, plan[cls][1]))
+    return out
+
+
+def missing_avoided_block(text: str, plan: dict[str, tuple[str, str]]) -> str:
+    """ข้อความหัวข้อ 'กลุ่มที่ไม่เหมาะกับเคสนี้' เฉพาะหมวดที่คำตอบยังไม่ได้พูดถึง ("" = ไม่ต้องเติม)
+
+    เติมเฉพาะคำตอบที่ลงรายชื่อยาจริง (มี [Ref: Dose, หน้า N] ตั้งแต่ 2 จุด) -- คำตอบแรกที่บอกแค่ชื่อ
+    กลุ่มยายังไม่ต้องมีหัวข้อนี้ (คงสไตล์เดิมของระบบ) และถ้าโมเดลเขียนครบเองแล้วจะไม่แตะ
+    """
+    groups = avoided_groups(plan or {})
+    if not text or not groups or len(_DOSE_REF_RE.findall(text)) < 2:
+        return ""
+    low = text.lower()
+
+    def named(names: list[str]) -> bool:
+        return any(re.split(r"[\s/(]", n.strip())[0].lower() in low for n in names if len(n) >= 4)
+
+    missing = [g for g in groups if not named(g[1])]
+    if not missing:
+        return ""
+    rows = ["**กลุ่มที่ไม่เหมาะกับเคสนี้ (ไม่แนะนำให้ใช้):**"]
+    for label, names, reason in missing:
+        shown = ", ".join(n if len(n) <= 70 else n[:67].rstrip() + "…" for n in names)
+        why = re.split(r"\s--\s|;\s", (reason or "").strip())[0]
+        rows.append(f"- **{label}:** {shown}" + (f" -- {why}" if why else ""))
+    return "\n".join(rows) + "\n"
+
+
+def ensure_avoided_section(text: str, plan: dict[str, tuple[str, str]]) -> str:
+    """(คำตอบแบบไม่สตรีม) แทรกหัวข้อที่ขาดไว้ก่อนบรรทัดเชิญถามต่อ/ตารางสรุป/หัวข้อ 4"""
+    block = missing_avoided_block(text, plan)
+    if not block:
+        return text
+    for anchor in _AVOID_ANCHORS:
+        i = text.find(anchor)
+        if i > 0:
+            j = text.rfind("\n", 0, i)
+            cut = j + 1 if j >= 0 else i
+            return text[:cut].rstrip("\n") + "\n\n" + block + "\n" + text[cut:]
+    return text.rstrip("\n") + "\n\n" + block
 
 
 def gate_dose_chunks(chunks: list[dict], plan: dict[str, tuple[str, str]], f: dict) -> list[dict]:
@@ -780,8 +897,12 @@ def gate_dose_chunks(chunks: list[dict], plan: dict[str, tuple[str, str]], f: di
         if d is None:
             out.append(c)
             continue
-        statuses = [plan[k][0] for k in d["classes"] if k in plan]
+        in_plan = [k for k in d["classes"] if k in plan]
+        statuses = [plan[k][0] for k in in_plan]
         if statuses and all(s == "avoid" for s in statuses):
+            continue
+        # ยาที่ถูกกันระดับตัวยาในทุกกลุ่มที่เกี่ยวข้อง (เช่น CPM ในเคสน้ำมูกข้นเหนียว) -> ไม่ต้องแนบ chunk
+        if in_plan and all(class_drug_block(d, k, f) for k in in_plan):
             continue
         if not _eligible(d, f)[0]:
             continue
@@ -862,7 +983,8 @@ def history_gaps(text: str, f: dict) -> tuple[str, int]:
         helpful_missing.append("อายุที่แน่นอน (ทราบน้ำหนักแล้ว คำนวณขนาดยาได้) -- เพื่อตรวจข้อห้ามใช้ตามอายุและเลือกระยะเวลา"
                                "รักษาตามช่วงอายุ")
     else:
-        minimal_missing.append("อายุ -- เพื่อเลือก Guideline ให้ตรงกลุ่มอายุ ตรวจข้อห้ามใช้ตามอายุ และให้คะแนน Centor ได้ถูก")
+        minimal_missing.append("อายุ -- เพื่อเลือก Guideline ให้ตรงกลุ่มอายุ ตรวจข้อห้ามใช้ตามอายุ"
+                               + (" และให้คะแนน Centor ได้ถูก" if centor_scope(f)[0] else ""))
     if ped and (f.get("age") is None or f["age"] <= 12):
         if f.get("weight") is not None:
             known.append(f"น้ำหนัก ({f['weight']:g} kg)")
@@ -889,12 +1011,13 @@ def history_gaps(text: str, f: dict) -> tuple[str, int]:
 
     if f.get("runny") and not f.get("runny_char"):
         helpful_missing.append("ลักษณะน้ำมูก (ใส/เหลว หรือ ข้นเหนียว/มีสี) -- เพื่อเลือกยาลดน้ำมูกให้ถูก "
-                               "(ยาแก้แพ้รุ่นที่ 1 ทำให้น้ำมูกข้นเหนียวขึ้น)")
+                               "(น้ำมูกข้นเหนียวใช้ยาแก้แพ้รุ่นที่ 1 ไม่ได้ แต่รุ่นที่ 2 ยังใช้ได้ ร่วมกับล้างจมูก)")
     if f.get("cough") and not f.get("cough_type"):
         helpful_missing.append("ลักษณะการไอ (ไอแห้ง/ไม่มีเสมหะ หรือ ไอมีเสมหะ) -- เพื่อเลือกระหว่างยาบรรเทาอาการไอแห้ง "
                                "กับยาละลาย/ขับเสมหะ")
     if f.get("fever") and not _TEMP_RE.search(text) and (f.get("sore_throat") or f.get("sinus") or ped):
-        helpful_missing.append("อุณหภูมิที่วัดได้ -- ใช้ประเมินเกณฑ์ Centor (≥38°C)/ความรุนแรง")
+        helpful_missing.append("อุณหภูมิที่วัดได้ -- ใช้ประเมิน"
+                               + ("เกณฑ์ Centor (≥38°C)/" if centor_scope(f)[0] else "") + "ความรุนแรง")
     if _MEDS_RE.search(text):
         known.append("ยาที่ใช้มาก่อน")
     else:
@@ -902,8 +1025,8 @@ def history_gaps(text: str, f: dict) -> tuple[str, int]:
     if _COMORBID_RE.search(text):
         known.append("โรคประจำตัว/ภาวะพิเศษ")
     else:
-        helpful_missing.append("โรคประจำตัว/ภาวะพิเศษ (ความดัน โรคหัวใจ ไต ตับ ตั้งครรภ์) -- เพื่อตรวจข้อห้ามของยา "
-                               "(เช่น Phenylephrine ในความดันสูง, NSAIDs ในโรคไต/แผลในกระเพาะ)")
+        helpful_missing.append("โรคประจำตัว/ภาวะพิเศษ (ความดัน โรคหัวใจ ไต ตับ ตั้งครรภ์) -- เพื่อตรวจข้อห้าม/การปรับขนาดยา "
+                               "(ตอนถามไม่ต้องยกตัวอย่างชื่อยา)")
 
     dx_given = bool(_DIAGNOSIS_GIVEN_RE.search(text))
     if dx_given:
@@ -966,14 +1089,35 @@ def _temps(text: str) -> list[float]:
     return [v for v in vals if 34 <= v <= 43]
 
 
-def centor_assessment(text: str, f: dict) -> dict | None:
-    """คะแนน Modified Centor รายข้อจากข้อมูลที่ผู้ใช้ให้มาจริง (None = ยังไม่ทราบ -- ห้ามเดา) -- เฉพาะเคสเจ็บคอ"""
+def centor_scope(f: dict) -> tuple[bool, str]:
+    """เกณฑ์ Modified Centor ใช้กับ 'คออักเสบ (pharyngitis)' เท่านั้น
+    AAFP หน้า 4: "...using the modified Centor criteria when evaluating patients with **pharyngitis**
+    to determine the likelihood of group A beta-hemolytic streptococcal infection"
+    -> เคสที่อาการเด่นเป็นกล่องเสียงอักเสบ (เสียงแหบ/สายเสียงอักเสบ = laryngitis ซึ่ง AAFP ระบุว่าเป็นไวรัส
+    รักษาประคับประคอง ไม่ใช้ ATB) ไม่ต้องประเมิน Centor -- เว้นแต่มีสิ่งตรวจพบที่บ่งชี้ GABHS pharyngitis
+    จริง (ทอนซิลบวม/มีหนอง หรือต่อมน้ำเหลืองคอด้านหน้าโต) ร่วมด้วย
+    คืน (ใช้ได้ไหม, เหตุผลที่ใช้ไม่ได้: "" | "child3" | "laryngitis")"""
     if not f.get("sore_throat"):
-        return None
-    text = text or ""
+        return False, ""
     age = f.get("age")
     if age is not None and age < 3:
-        return {"applicable": False, "items": [], "known": 0, "max": 0, "unknown": []}
+        return False, "child3"
+    if f.get("hoarse") and not (f.get("tonsil_finding") is True or f.get("lymph_finding") is True):
+        # ฝาปิดกล่องเสียงอักเสบ (epiglottitis) ก็ไม่ใช่ pharyngitis เช่นกัน -> ไม่ต้องใช้ Centor
+        # แต่ห้ามติดป้ายว่าเป็น laryngitis (คนละโรค เป็นภาวะฉุกเฉิน) -> ไม่ส่งบันทึกใดๆ เข้า Context
+        return False, ("" if f.get("epiglottitis") else "laryngitis")
+    return True, ""
+
+
+def centor_assessment(text: str, f: dict) -> dict | None:
+    """คะแนน Modified Centor รายข้อจากข้อมูลที่ผู้ใช้ให้มาจริง (None = ยังไม่ทราบ -- ห้ามเดา) -- เฉพาะเคส pharyngitis"""
+    ok, why = centor_scope(f)
+    if not ok:
+        if not why:
+            return None
+        return {"applicable": False, "reason": why, "items": [], "known": 0, "max": 0, "unknown": []}
+    text = text or ""
+    age = f.get("age")
     items: list[tuple[str, int | None, str]] = []
     c = f.get("cough")
     items.append(("ไม่มีอาการไอ (Absence of cough)", 1 if c is False else (0 if c else None),
@@ -1016,6 +1160,14 @@ def centor_note(ca: dict | None) -> str:
     if not ca:
         return ""
     if not ca["applicable"]:
+        if ca.get("reason") == "laryngitis":
+            return ("**Modified Centor -- ไม่ต้องประเมินในเคสนี้ (สำคัญ):** อาการเด่นของเคสนี้คือ **กล่องเสียงอักเสบ "
+                    "(เสียงแหบ/สายเสียงอักเสบ = laryngitis)** ไม่ใช่คออักเสบ (pharyngitis) และยังไม่มีสิ่งตรวจพบที่บ่งชี้ "
+                    "GABHS pharyngitis (ทอนซิลบวม/มีหนอง หรือต่อมน้ำเหลืองคอด้านหน้าโตกดเจ็บ) "
+                    "-- เกณฑ์ Modified Centor ใน Context ระบุให้ใช้ **เมื่อประเมินผู้ป่วย pharyngitis** เท่านั้น "
+                    "[Ref: AAFP, หน้า 4] จึง **ห้ามคำนวณ ห้ามแสดงคะแนน และห้ามเอ่ยถึงเกณฑ์ Centor ในคำตอบนี้** "
+                    "(รวมถึงห้ามถามข้อมูลเพิ่มโดยอ้างว่าเป็นเกณฑ์ Centor) -- ให้ใช้เหตุผลของ laryngitis ตรงๆ แทน: "
+                    "AAFP ระบุว่า laryngitis เกิดจากไวรัส หายได้เอง **ไม่ใช้ยาปฏิชีวนะ** รักษาแบบประคับประคอง")
         return ("**Modified Centor:** เด็กอายุต่ำกว่า 3 ปี ไม่ใช้เกณฑ์ Centor (GABHS พบน้อยในกลุ่มนี้) -- ประเมินตาม URI เด็ก 2562")
     lines = ["**Modified Centor (McIsaac) -- ระบบคำนวณจากข้อมูลที่ผู้ใช้ให้มาจริง (เกณฑ์ AAFP หน้า 4 TABLE 2) -- ให้แสดงตามนี้ "
              "ห้ามให้คะแนนข้อที่ 'ยังไม่ทราบ' เอง และห้ามรวมเลขใหม่เป็นค่าอื่น; เกณฑ์และการแปลผลอ้าง [Ref: AAFP, หน้า 4]:**"]
@@ -1055,7 +1207,8 @@ def history_checklist(text: str, f: dict, *, force: bool = False) -> dict | None
     ped = f.get("group") == "pediatric"
     age = f.get("age")
     child12 = ped and (age is None or age <= 12)
-    throat = bool(f.get("sore_throat")) and not (age is not None and age < 3)
+    # throat = "เคสที่ใช้เกณฑ์ Centor ได้จริง" (pharyngitis) -- เคส laryngitis/เด็ก <3 ปี ไม่เข้าเกณฑ์
+    throat = centor_scope(f)[0]
     sinus, ear = bool(f.get("sinus")), bool(f.get("ear"))
     missing: list[dict] = []
 
@@ -1068,7 +1221,7 @@ def history_checklist(text: str, f: dict, *, force: bool = False) -> dict | None
     if age is None:
         add("age", "อายุ", "อายุของผู้ป่วย",
             "เพื่อเลือก Guideline ให้ตรงกลุ่มอายุ (เด็กยึด URI เด็ก 2562 / ผู้ใหญ่ยึด AAFP) และตรวจข้อห้ามใช้ยาตามอายุ"
-            + (" รวมถึงให้คะแนน Modified Centor ข้ออายุ" if f.get("sore_throat") else ""))
+            + (" รวมถึงให้คะแนน Modified Centor ข้ออายุ" if throat else ""))
     if child12 and f.get("weight") is None:
         add("weight", "น้ำหนักตัว", "น้ำหนักตัวปัจจุบัน (กก.)",
             "ในเด็กจำเป็นต้องใช้คำนวณขนาดยาตามน้ำหนัก (mg/kg) ทั้งยาลดไข้และยาอื่นๆ ให้ถูกต้องและปลอดภัย")
@@ -1078,12 +1231,16 @@ def history_checklist(text: str, f: dict, *, force: bool = False) -> dict | None
             + (" และใช้ประกอบเกณฑ์ไซนัสอักเสบจากแบคทีเรีย" if sinus else ""))
     if f.get("runny") and not f.get("runny_char"):
         add("runny_char", "ลักษณะน้ำมูก", "ลักษณะน้ำมูก: ใส/เหลว หรือ ข้นเหนียว มีสีเหลือง-เขียว",
-            "เพื่อเลือกการรักษาให้ตรง: น้ำมูกใสใช้ยาลดน้ำมูก (antihistamine) ได้ แต่น้ำมูกข้นเหนียวไม่ควรใช้ antihistamine "
-            "รุ่นที่ 1 เพราะทำให้เหนียวข้นขึ้น ควรล้างจมูกด้วยน้ำเกลือแทน")
+            "เพื่อเลือกยาลดน้ำมูกให้ตรงลักษณะ: น้ำมูกใสเหลว/ไหลเป็นสาย กับน้ำมูกข้นเหนียว ใช้ยาคนละแบบกัน "
+            "และถ้าน้ำมูกข้นเหนียวต้องเน้นการล้างจมูกด้วยน้ำเกลือร่วมด้วย")
     if f.get("cough") and not f.get("cough_type"):
         add("cough_type", "ลักษณะการไอ", "ลักษณะการไอ: ไอแห้ง/ไม่มีเสมหะ หรือ ไอมีเสมหะ",
             "เพื่อเลือกกลุ่มยาให้ตรง: ไอแห้งใช้ยาบรรเทาอาการไอ (antitussive) ส่วนไอมีเสมหะใช้ยาละลาย/ขับเสมหะ (mucolytic) "
             "-- ใช้แทนกันไม่ได้")
+    if not throat and f.get("cough") is None and (f.get("sore_throat") or f.get("hoarse")):
+        # เคสคอ/เสียงแหบที่ไม่เข้าเกณฑ์ Centor -- ยังต้องรู้ว่ามีไอไหม แต่เหตุผลไม่ใช่ Centor
+        add("cough_presence", "มีไอหรือไม่", "มีอาการไอร่วมด้วยหรือไม่",
+            "เพื่อประเมินอาการร่วมและเลือกยาบรรเทาอาการให้ตรง (ถ้ามีไอ ต้องแยกว่าไอแห้งหรือไอมีเสมหะ)")
     if throat:
         ca = centor_assessment(text, f) or {"items": []}
         unknown = {lab for lab, s, _ in ca["items"] if s is None}
@@ -1102,22 +1259,25 @@ def history_checklist(text: str, f: dict, *, force: bool = False) -> dict | None
                "เพื่อแยกหวัด/ไวรัสทั่วไปออกจากภาวะแทรกซ้อน เช่น ไซนัสอักเสบจากแบคทีเรีย (อาการ ≥10 วัน) และประเมินระยะของโรค")
         add("duration", "ระยะเวลา", "อาการเป็นมากี่วันแล้ว และเคยเป็นแบบนี้มาก่อนหรือไม่", why)
     if not _MEDS_RE.search(text):
+        # เหตุผลของคำถามซักประวัติ: บอก "ทำไมต้องถาม" พอ -- ห้ามยกตัวอย่างชื่อยา/ชื่อกลุ่มยาที่ยังไม่จำเป็น
+        # (feedback อาจารย์: การยกตัวอย่างยาในขั้นซักประวัติทำให้เกิด bias ไปที่ยาตัวนั้น ทั้งที่ยังมีทางเลือกอื่นอีกมาก)
         add("meds", "ยาที่ใช้มาก่อน", "ใช้ยาอะไรมาก่อนมาร้านยาหรือยัง (ชื่อยา และได้ผลไหม)",
             "เพื่อป้องกันการใช้ยาซ้ำซ้อน/เกินขนาด (ยาลดไข้มักผสมอยู่ในยาสูตรผสมหลายตัว) และประเมินการตอบสนองต่อยาเดิม"
-            + (" -- หูชั้นกลางอักเสบ: ถ้าเคยได้ amoxicillin ใน 30 วัน จะเปลี่ยนยาตัวแรก" if ear else ""))
+            + (" -- หูชั้นกลางอักเสบ: ยาปฏิชีวนะที่เคยได้ภายใน 30 วันมีผลต่อการเลือกยาตัวแรก" if ear else ""))
     if not _ALLERGY_RE.search(text):
         add("allergy", "ประวัติแพ้ยา", "ประวัติแพ้ยา (แพ้ยาอะไร และอาการแพ้เป็นแบบใด เช่น ผื่นแดง ลมพิษ หน้าบวม หายใจลำบาก)",
-            "เพื่อเลือกยาที่ปลอดภัย โดยเฉพาะหากต้องใช้ยาปฏิชีวนะ -- ชนิดของอาการแพ้เป็นตัวกำหนดว่าใช้ยากลุ่ม cephalosporin แทนได้หรือไม่")
+            "เพื่อเลือกยาที่ปลอดภัย โดยเฉพาะหากต้องใช้ยาปฏิชีวนะ -- ชนิดและความรุนแรงของอาการแพ้เป็นตัวกำหนดว่าจะเลือก"
+            "ยาปฏิชีวนะทางเลือกกลุ่มใดได้บ้าง")
     if not _COMORBID_RE.search(text):
         if ped:
             add("comorbid", "โรคประจำตัว", "โรคประจำตัว (เช่น หอบหืด ภูมิแพ้ G6PD โรคหัวใจ)",
-                "เพื่อตรวจข้อห้ามของยาในเด็ก เช่น NSAIDs ในหอบหืด และผลิตภัณฑ์บางชนิดในผู้ที่เป็น G6PD")
+                "เพื่อตรวจข้อห้าม/ข้อควรระวังของยาในเด็ก ซึ่งโรคประจำตัวบางอย่างเป็นข้อห้ามของยาบางกลุ่ม")
         else:
             fem = bool(_FEMALE_RE.search(text))
             add("comorbid", "โรคประจำตัว", "โรคประจำตัว/ภาวะพิเศษ (เช่น ความดันโลหิตสูง โรคหัวใจ โรคไต โรคตับ แผลในกระเพาะอาหาร หอบหืด"
                 + (" ตั้งครรภ์/ให้นมบุตร" if fem else "") + ")",
-                "เพื่อตรวจข้อห้าม/ข้อควรระวังของยา เช่น ยาแก้คัดจมูกในความดันสูง/โรคหัวใจ, NSAIDs ในโรคไต/แผลในกระเพาะ/หอบหืด"
-                + (" และความปลอดภัยของยาในหญิงตั้งครรภ์/ให้นมบุตร" if fem else ""))
+                "เพื่อตรวจข้อห้าม/ข้อควรระวังของยาก่อนเลือกยาให้ผู้ป่วย เพราะโรคประจำตัวบางอย่างเป็นข้อห้ามหรือต้องปรับขนาดยา"
+                + (" รวมถึงความปลอดภัยของยาในหญิงตั้งครรภ์/ให้นมบุตร" if fem else ""))
     return {"missing": missing, "dx_given": bool(_DIAGNOSIS_GIVEN_RE.search(text)), "ped": ped}
 
 
@@ -1147,7 +1307,7 @@ def ask_first_reply(summary: str, chk: dict, text: str, f: dict) -> str:
     if _ATB_ASK_RE.search(text or ""):
         parts.append("ตอบคำถามเรื่องการจ่ายยาปฏิชีวนะได้อย่างมีหลักฐาน")
     parts.append("สรุปการวินิจฉัยแยกโรค")
-    if f.get("sore_throat") and not (f.get("age") is not None and f["age"] < 3):
+    if centor_scope(f)[0]:
         parts.append("คำนวณคะแนน Modified Centor ให้ครบเพื่อตัดสินใจเรื่องยาปฏิชีวนะ (ทั้งตาม Guideline และแนวปฏิบัติจริงของไทย)")
     if f.get("sinus"):
         parts.append("ประเมินเกณฑ์ไซนัสอักเสบจากแบคทีเรียและความจำเป็นของยาปฏิชีวนะ")
@@ -1266,6 +1426,81 @@ def _canonical_form_label(forms: set[str], label: str) -> str:
     suffix = "บรรเทาอาการเจ็บคอ" if "เจ็บคอ" in label else ""
     names = {"spray": "ยาพ่น" if suffix else "ยาพ่นคอ", "lozenge": "ยาอม", "gargle": "ยากลั้วคอ"}
     return "/".join(names[fm] for fm, _ in _FORM_WORDS if fm in forms) + suffix
+
+
+# ─── Example-completeness guard (ยก "เช่น <ยาตัวเดียว>" ทั้งที่กลุ่มนั้นมีหลายตัว) ──────────
+# feedback อาจารย์: "ยาแก้แพ้รุ่นที่ 1 (เช่น Chlorpheniramine)" -> ผู้อ่าน bias คิดว่ามีแค่ตัวนั้น
+# ทั้งที่ในตาราง Dose มีรุ่นที่ 1 อีกหลายตัวที่ไม่เหมาะกับเคสเดียวกัน
+# ทำเฉพาะ "บริบทเชิงลบ" (ไม่เหมาะ/ไม่แนะนำ/หลีกเลี่ยง) เท่านั้น -- การเติมชื่อยาที่ "ถูกกัน"
+# ให้ครบปลอดภัยเสมอ ส่วนฝั่ง "แนะนำให้ใช้" ห้ามเติมเอง (ต้องผ่านการคัดตัวเลือกของ Catalog)
+_G1_LABEL_RE = re.compile(
+    r"(?:ยาแก้แพ้|ยาลดน้ำมูก|antihistamine)[^\n]{0,20}?(?:รุ่นที่\s*1|generation\s*1|1st[\s-]?gen|first[\s-]?gen)",
+    re.IGNORECASE)
+_NEGATIVE_RE = re.compile(r"ไม่เหมาะ|ไม่แนะนำ|หลีกเลี่ยง|ควรเลี่ยง|ไม่ควรใช้|ห้ามใช้|งดใช้")
+_EG_PAREN_RE = re.compile(r"[\(（]\s*(เช่น|ได้แก่|ตัวอย่างเช่น)?\s*([^()（）\n]{3,160}?)\s*[\)）]")
+_EG_PLAIN_RE = re.compile(r"(เช่น|ได้แก่)\s+([A-Za-z][A-Za-z\s\-,/]{3,80})")
+
+
+def may_need_group_expand(seg: str) -> bool:
+    """บรรทัดที่ยังมาไม่ครบนี้อาจต้องเติมชื่อยาให้ครบ -> ตอน streaming ให้กันไว้จนจบบรรทัดก่อน
+    (ไม่งั้นชื่อกลุ่มกับช่วง 'เช่น ...' ถูกหั่นคนละ chunk แล้วตัวเติมจะมองไม่เห็น)"""
+    return bool(seg) and bool(_G1_LABEL_RE.search(seg))
+
+
+def expand_group_examples(text: str) -> str:
+    """บรรทัดที่บอกว่า 'ยาแก้แพ้รุ่นที่ 1 ไม่เหมาะ' แล้วยกตัวอย่างมาแค่ตัวเดียว -> เติมชื่อให้ครบทุกตัวในตาราง
+
+    แก้เฉพาะช่วง "ตัวอย่าง" ที่อยู่ติดหลังชื่อกลุ่ม และเฉพาะเมื่อยกมา **ตัวเดียว** เท่านั้น
+    (ถ้าโมเดลยกมา 2 ตัวขึ้นไปแล้ว = หลากหลายพอ -> ไม่แตะ คงถ้อยคำเดิมของโมเดล)
+    """
+    if not text or not _G1_LABEL_RE.search(text):
+        return text
+    members = class_drug_names("antihistamine", first_gen=True)
+    if len(members) < 2:
+        return text
+    full = ", ".join(members)
+    # ตัวย่อที่ใช้กันหน้าร้าน (เขียน "CPM" แทน Chlorpheniramine) -> ต้องจับได้ด้วย ไม่งั้นตัวเติมไม่ทำงาน
+    alias = {"chlorpheniramine": ("cpm",)}
+    keys = [(m, (m.lower(),) + alias.get(m.lower(), ())) for m in members]
+
+    def _named_in(s: str) -> list[str]:
+        low_s = s.lower()
+        return [m for m, ks in keys if any(re.search(rf"\b{re.escape(k)}\b", low_s) for k in ks)]
+
+    def _fix_span(span: str) -> str | None:
+        """คืนข้อความใหม่ถ้าช่วงนี้ยกชื่อยาของกลุ่มมาแค่ตัวเดียว (None = ไม่ต้องแก้)"""
+        hit = _named_in(span)
+        if len(hit) != 1:
+            return None
+        # มีเนื้อความอื่นปนนอกจากชื่อยา (เช่น คำอธิบายยาว) -> ไม่แตะ กันแก้ผิดที่
+        rest = re.sub("|".join(re.escape(k) for k in dict(keys)[hit[0]]), "", span, flags=re.IGNORECASE)
+        if re.search(r"[ก-๙]{4,}", rest):
+            return None
+        return full
+
+    out = []
+    for line in text.split("\n"):
+        m = _G1_LABEL_RE.search(line)
+        # ทั้งบรรทัดเอ่ยชื่อยาของกลุ่มไปแล้ว >= 2 ตัว = หลากหลายพอ -> ไม่แตะ
+        # (ต้องดูทั้งบรรทัด ไม่ใช่เฉพาะในวงเล็บ เช่น "ได้แก่ CPM (Chlorpheniramine), Brompheniramine")
+        if not m or not _NEGATIVE_RE.search(line) or len(_named_in(line)) >= 2:
+            out.append(line)
+            continue
+        tail = line[m.end():]
+        new_tail, done = tail, False
+        for rx in (_EG_PAREN_RE, _EG_PLAIN_RE):
+            mm = rx.search(tail[:180])          # ต้องอยู่ติดหลังชื่อกลุ่ม ไม่ใช่ที่อื่นในบรรทัด
+            if not mm or _fix_span(mm.group(2)) is None:
+                continue
+            s, e = mm.start(2), mm.start(2) + len(mm.group(2).rstrip())
+            seg = tail[mm.start(): s] + full + tail[e: mm.end()]
+            if mm.group(1) == "เช่น":
+                seg = seg.replace("เช่น", "ได้แก่", 1)   # ตอนนี้ครบทุกตัวแล้ว ไม่ใช่ "ตัวอย่าง"
+            new_tail = tail[: mm.start()] + seg + tail[mm.end():]
+            done = True
+            break
+        out.append(line[: m.end()] + new_tail if done else line)
+    return "\n".join(out)
 
 
 def fix_form_labels(text: str) -> str:
@@ -1474,7 +1709,7 @@ def prior_antibiotic_note(text: str, f: dict) -> str:
 def practice_flags(f: dict) -> list[str]:
     """เคสที่เข้าข่าย Expert Opinion (แนวปฏิบัติจริงไทย) -- ให้ LLM แสดงบล็อก 'ในทางปฏิบัติจริง' ต่อจากคำแนะนำ Guideline"""
     flags: list[str] = []
-    if f.get("sore_throat"):
+    if centor_scope(f)[0]:
         flags.append("เจ็บคอ/คออักเสบ -> คำนวณคะแนน Centor/McIsaac จากข้อมูลจริงของเคสนี้ให้ครบทุกเกณฑ์ (ไม่ใช่แสดงเกณฑ์ลอยๆ) "
                      "แล้วแสดงทั้งคำแนะนำ Guideline และ RDU Practice ไทย (คะแนน 3-5 พิจารณาจ่ายยาปฏิชีวนะ first-line พร้อมขนาด+"
                      "ระยะเวลา / <3 หลีกเลี่ยง)")
