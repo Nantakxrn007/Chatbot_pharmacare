@@ -3390,6 +3390,10 @@ def build_clinical_support(
         alg_gate = _sg.allergy_gate_note(feat)
         if alg_gate:
             notes.append(alg_gate)
+        # ยาที่ใช้มาแล้วไม่ได้ผล -> ห้ามเสนอซ้ำ (ผูกกับเคส จึงต้องติดไปทุกเทิร์นเหมือนประวัติแพ้ยา)
+        failed_gate = _sg.prior_failed_note(feat)
+        if failed_gate:
+            notes.append(failed_gate)
         if post_ask or (not followup and _sg.is_case_description(question, feat)):
             n_min = 0
             if post_ask:
@@ -3412,8 +3416,10 @@ def build_clinical_support(
             # เคสข้อมูลไม่ครบ (ประเภท 4) ต้องซักประวัติก่อน -> ยังไม่ดันบล็อกแนวปฏิบัติจ่ายยาปฏิชีวนะ
             flags = _sg.practice_flags(feat) if (post_ask or n_min <= 1) else []
             # หวัด/URI ที่ไม่ได้ปฏิเสธไข้/ปวด: ยาแก้ปวด-ลดไข้เป็นยาใช้เมื่อมีอาการที่ควรมีในคำตอบเสมอ (AAFP: analgesics ในหวัด)
+            # ...ยกเว้นเคสที่ผู้ป่วยใช้ Paracetamol มาแล้วไม่ได้ผล -- จะไปบังคับให้เสนอซ้ำไม่ได้
             if ((post_ask or n_min <= 1) and plan.get("fever_pain", ("", ""))[0] == "fit"
-                    and feat.get("fever") is None and not feat.get("pain")):
+                    and feat.get("fever") is None and not feat.get("pain")
+                    and "Paracetamol" not in (feat.get("failed_drugs") or [])):
                 notes.append("**ยาบรรเทาอาการที่ต้องมีในหัวข้อ 3b:** ใส่ **Paracetamol** เป็นยาใช้เมื่อมีอาการ (as needed) "
                              "สำหรับไข้ต่ำ/ปวดศีรษะ/ปวดเมื่อยที่พบบ่อยในหวัด พร้อมขนาดยาและ [Ref: Dose, หน้า N]")
             prior_atb = _sg.prior_antibiotic_note(case_text, feat)
