@@ -707,6 +707,16 @@ Laryngitis = กล่องเสียงอักเสบ; Acute otitis medi
    - **ถ้าข้อความล่าสุด "ไม่มีข้อมูลผู้ป่วย/อาการเลย" (เป็นเพียงการเกริ่น/คั่นเวลา เช่น "เดี๋ยวมีอีกเคส",
      "รอแป๊ป", "เดี๋ยวถามใหม่") ห้ามแต่งอาการ/สร้างเคสสมมติขึ้นมาเองเด็ดขาด** -- ให้ตอบสั้นๆ ว่าพร้อมรับเคส
      และเชิญให้พิมพ์รายละเอียด (ห้ามวินิจฉัย ห้ามสมมติว่าเป็นโรคใด)
+   - **ผู้ใช้บอกแต่ "โรคประจำตัว/ข้อมูลผู้ป่วย" โดยยังไม่บอกอาการ (เช่น "เป็นเบาหวาน", "อายุ 60 ปี")
+     -> ห้ามเดาว่าเป็นหวัด/ไข้หวัด/โรคทางเดินหายใจใดๆ เด็ดขาด** และห้ามเขียนหัวข้อ "การวินิจฉัยเบื้องต้น"
+     ของโรคที่ผู้ใช้ไม่ได้บอก -- **ข้อห้ามนี้มีผลต่อเนื่องทุกเทิร์นถัดไป** จนกว่าผู้ใช้จะบอกอาการจริง
+     (เคสจริงที่พลาด: ผู้ใช้พิมพ์ "เป็นเบาหวาน" แล้วถามต่อ "กินยาอะไร" ระบบตอบว่า "สำหรับเคสโรคหวัด...")
+   - **แต่ "ห้ามเดาโรค" ไม่ได้แปลว่า "ให้ถามกลับ"** -- ถ้าผู้ใช้ถามอะไรมา **ให้ตอบสิ่งนั้น**:
+     ถ้าเป็นภาวะนอกขอบเขต URI ให้จัดเป็น **ประเภท 6** แล้วให้ความรู้ทั่วไปที่ถูกต้อง (กำกับว่านอกคู่มือ
+     + แนบ URL อ้างอิงภายนอกที่ชี้เอกสารจริง) ถ้าถามเรื่องยาก็ยกหลักการ/ข้อควรระวังและแนวทางจาก
+     Guideline ที่ใกล้เคียงมาอธิบายได้ โดยระบุว่าเป็น **แนวทางทั่วไป ไม่ใช่การวินิจฉัย/สั่งยาให้ผู้ป่วยรายนี้**
+     แล้วปิดท้ายว่าควรปรึกษาแพทย์ผู้ดูแลโรคประจำตัว/เภสัชกรที่ร้าน
+     -- **ห้ามตอบด้วยรายการคำถามซักประวัติยาวๆ แทนคำตอบ** (ถามเพิ่มได้แค่เชิญชวนสั้นๆ ท้ายคำตอบ)
    - **แจ้งว่า "แพ้ยา" แต่ยังไม่บอกว่าแพ้ตัวไหน = ข้อมูลไม่ครบ** ต้องถามก่อน (แพ้ยาอะไร ลักษณะอาการแพ้
      เกิดนานแค่ไหน เคยใช้ penicillin/cephalosporin แล้วเป็นอย่างไร) ห้ามด่วนสรุปว่าแพ้กลุ่มใดแล้วเปลี่ยนยาเอง
    - **ห้ามให้ข้อมูลจากเคสก่อนหน้า "รั่ว" มาปนกับเคสใหม่ (Context/Conversation bleeding) -- สำคัญมาก:**
@@ -3442,6 +3452,26 @@ def build_clinical_support(
         return empty
 
 
+def _with_out_of_scope_note(clinical_notes: str, question: str, history: list[dict] | None) -> str:
+    """แนบบันทึก "ยังไม่มีอาการ -> ห้ามเดาโรค" -- ต้องทำนอก build_clinical_support
+    เพราะเคสนอกขอบเขตมักได้ weak_context (similarity ต่ำ) ซึ่งชั้นนั้น return ว่างทันที"""
+    try:
+        case_text, _followup = _case_text_for_features(question, history)
+        # เทิร์นต่อเนื่องอย่าง "กินยาอะไร" ไม่มีคำว่า "เบาหวาน" อยู่ในตัว -> ต้องย้อนอ่านข้อความผู้ใช้
+        # ก่อนหน้าด้วย ไม่งั้นบริบทภาวะนอกขอบเขตหายไปกลางแชท แล้วโมเดลกลับไปถามซักประวัติซ้ำ
+        # (ปลอดภัยเอง: ถ้าเคสก่อนหน้ามีอาการ URI จริง out_of_scope_note จะไม่ยิงอยู่แล้ว)
+        if not _sg.out_of_scope_condition(case_text):
+            prior = chr(10).join(m.get("content") or "" for m in (history or []) if m.get("role") == "user")
+            case_text = (prior + chr(10) + case_text) if prior else case_text
+        note = _sg.out_of_scope_note(case_text, _sg.extract_case_features(case_text))
+    except Exception as e:  # noqa: BLE001 -- ชั้นเสริมต้องไม่ทำคำตอบหลักล้ม
+        print(f"[RAG] out-of-scope note skipped: {e}")
+        return clinical_notes
+    if not note:
+        return clinical_notes
+    return (clinical_notes + chr(10) * 2 + note) if clinical_notes else note
+
+
 def _format_clinical_notes(notes: str) -> str:
     return f"\n{notes}\n" if notes else ""
 
@@ -3518,6 +3548,8 @@ def generate_answer(
     # เคสเด็ก: ยาปฏิชีวนะตัวเดียวกันที่มีอยู่ทั้งใน URI เด็ก 2562 และ AAFP -> ต้องอ้างทั้งสองเล่ม
     dual_map = _dual_guideline_map(chunks, sym_feat)
     clinical_notes = _with_dual_guideline_note(clinical_notes, dual_map)
+    # ผู้ใช้ยังไม่ได้บอกอาการ -> กันโมเดลเดาโรค แต่ยังให้ตอบตามปกติ (ประเภท 6 + ความรู้นอกคู่มือ)
+    clinical_notes = _with_out_of_scope_note(clinical_notes, question, history)
     context      = build_context(chunks, weak_context=weak_context)
     if catalog:
         context += "\n\n" + "=" * 60 + "\n\n" + catalog
@@ -3616,6 +3648,8 @@ async def generate_answer_stream(
     # เคสเด็ก: ยาปฏิชีวนะตัวเดียวกันที่มีอยู่ทั้งใน URI เด็ก 2562 และ AAFP -> ต้องอ้างทั้งสองเล่ม
     dual_map = _dual_guideline_map(chunks, sym_feat)
     clinical_notes = _with_dual_guideline_note(clinical_notes, dual_map)
+    # ผู้ใช้ยังไม่ได้บอกอาการ -> กันโมเดลเดาโรค แต่ยังให้ตอบตามปกติ (ประเภท 6 + ความรู้นอกคู่มือ)
+    clinical_notes = _with_out_of_scope_note(clinical_notes, question, history)
     context      = build_context(chunks, weak_context=weak_context)
     if catalog:
         context += "\n\n" + "=" * 60 + "\n\n" + catalog
