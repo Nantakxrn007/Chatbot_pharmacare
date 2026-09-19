@@ -526,12 +526,22 @@ function applyExpertBlocks(root: HTMLElement) {
     block.appendChild(tag);
     block.appendChild(heading);
 
+    // The sub-label break below is what ends the block — but when the answer's
+    // very first line under the heading *is* such a label ("**ยาทางเลือกแรก
+    // (First-line):**", "**ยาปฏิชีวนะที่พิจารณาจ่าย:**"), it fired before
+    // anything had been absorbed and the card rendered as a green frame with
+    // the heading and nothing else, its content sitting outside (reported from
+    // production). The label can only mean "the regular treatment section
+    // resumes here" once the block actually has a body, so never break on the
+    // first node — a card with one paragraph too many beats an empty one.
     let node = block.nextElementSibling;
+    let absorbed = 0;
     while (node && !/^H[1-4]$/.test(node.tagName)) {
       const next = node.nextElementSibling;
       const label = node.querySelector(':scope > strong:first-child');
-      if (label && TREATMENT_SUBLABEL_PATTERN.test(label.textContent || '')) break;
+      if (absorbed > 0 && label && TREATMENT_SUBLABEL_PATTERN.test(label.textContent || '')) break;
       block.appendChild(node);
+      absorbed += 1;
       node = next;
     }
   });

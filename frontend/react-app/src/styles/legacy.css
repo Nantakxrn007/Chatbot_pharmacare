@@ -1893,6 +1893,61 @@
             margin-left: 2.2rem;
         }
 
+        /* A category that actually carries a drug list ("ยาแก้ปวด/ลดไข้",
+           "ยาบรรเทาอาการไอ", "ยาพ่นบรรเทาอาการเจ็บคอ", ...) gets its own
+           light card. As flat bullets in one long list, the categories ran
+           together — nothing showed where one ended and the next began, and
+           the drugs underneath sat almost flush with their own label
+           (reported from the counter). The card pulls back to the list's
+           left edge so the body gets the full width, and fixes one inner
+           indent so every category expands by the same amount.
+           Scoped to li's that HAVE a nested list: one-line category bullets
+           (e.g. the entries under "กลุ่มที่ไม่เหมาะกับเคสนี้") would look odd
+           boxed, so they stay plain bullets exactly as before. */
+        .ai-text li.ai-drug-category:has(> ul) {
+            list-style: none;
+            margin: 0 0 0.85rem -1.85rem;
+            padding: 0.75rem 1rem 0.25rem;
+            background: #f8fbfa;
+            border: 1px solid #e3ece8;
+            border-left: 3px solid #1fae86;
+            border-radius: 0 10px 10px 0;
+        }
+
+        /* The label sits on its own line inside the card (it lost its
+           bullet, so it needs the break to still read as a heading). */
+        .ai-text li.ai-drug-category:has(> ul) > strong:first-child,
+        .ai-text li.ai-drug-category:has(> ul) > p:first-child > strong:first-child {
+            display: block;
+            margin-bottom: 0.4rem;
+            font-size: 1.01em;
+        }
+
+        /* One indent for the drug list in every card — without this each
+           category inherited whatever nesting depth the answer happened to
+           use, so they lined up differently from one another. */
+        .ai-text li.ai-drug-category:has(> ul) > ul {
+            padding-left: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .ai-text li.ai-drug-category:has(> ul) > ul > li:last-child {
+            margin-bottom: 0.35rem;
+        }
+
+        /* Phone: the card keeps its left accent but gives the text back the
+           horizontal room the padding would otherwise eat. */
+        @media (max-width: 640px) {
+            .ai-text li.ai-drug-category:has(> ul) {
+                margin-left: -1.35rem;
+                padding: 0.65rem 0.7rem 0.2rem;
+            }
+
+            .ai-text li.ai-drug-category:has(> ul) > ul {
+                padding-left: 1.1rem;
+            }
+        }
+
         /* Top-level treatment section header ("3a. ยาปฏิชีวนะ", "3b. ยาตามอาการ")
            — a left orange bar to separate it from the drug-category labels
            and choice bullets underneath, matching the reference mockup. */
