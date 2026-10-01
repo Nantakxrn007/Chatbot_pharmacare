@@ -13,7 +13,11 @@ export default function LoginPage() {
   useEffect(() => {
     if (!localStorage.getItem('token')) return;
     fetchMe()
-      .then(() => navigate('/', { replace: true }))
+      .then(() => {
+        const next = sessionStorage.getItem('after_login');
+        sessionStorage.removeItem('after_login');
+        navigate(next || '/', { replace: true });
+      })
       .catch(() => {});
   }, [navigate]);
 
@@ -26,7 +30,9 @@ export default function LoginPage() {
       localStorage.setItem('token', data.token);
       localStorage.setItem('username', data.username);
       localStorage.setItem('display_name', data.display_name);
-      navigate('/', { replace: true });
+      const next = sessionStorage.getItem('after_login');
+      sessionStorage.removeItem('after_login');
+      navigate(next || '/', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'เข้าสู่ระบบไม่สำเร็จ');
       setShake(true);

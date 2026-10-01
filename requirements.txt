@@ -9,3 +9,5 @@ pandas
 pydantic
 numpy
 rank_bm25
+
+cryptography>=42.0

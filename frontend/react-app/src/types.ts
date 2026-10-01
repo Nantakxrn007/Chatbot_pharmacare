@@ -36,6 +36,49 @@ export type StreamEvent =
 export interface Me {
   username: string;
   display_name?: string;
+  role?: string;
+}
+
+export interface AuditEvent {
+  id: number;
+  ts: string;
+  username: string;
+  ip: string;
+  action: string;
+  resource: string;
+  status: string;
+  detail: string;
+}
+
+export interface AdminOverview {
+  audit: {
+    hours: number;
+    events: number;
+    logins_ok: number;
+    logins_failed: number;
+    rate_limited: number;
+    denied: number;
+    total_rows: number;
+    top_failed_ips: { ip: string; n: number }[];
+    by_user: { username: string; n: number; last_ts: string }[];
+  };
+  chain: { ok: boolean; rows: number; first_bad_id: number | null };
+  users: { username: string; display_name: string; role: string; sessions?: number; messages?: number; last_activity?: string }[];
+  data: {
+    sessions_total: number;
+    messages_total: number;
+    messages_encrypted: number;
+    messages_plaintext: number;
+    sessions_plaintext: number;
+  };
+  locked: { key: string; target: string; retry_after: number }[];
+  config: {
+    jwt_secret_default: boolean;
+    cookie_secure: boolean;
+    token_expire_hours: number;
+    api_rate_limit: number;
+    chat_rate_limit: number;
+  };
 }
 
 export interface TokenSummarySession {

@@ -65,6 +65,7 @@ export default function ChatPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [displayName, setDisplayName] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [currentPatientName, setCurrentPatientName] = useState<string | null>(null);
@@ -107,7 +108,10 @@ export default function ChatPage() {
       return;
     }
     fetchMe()
-      .then((me) => setDisplayName(me.display_name || me.username))
+      .then((me) => {
+        setDisplayName(me.display_name || me.username);
+        setIsAdmin(me.role === 'admin');
+      })
       .catch(() => {
         clearAuth();
         navigate('/login', { replace: true });
@@ -454,6 +458,7 @@ export default function ChatPage() {
         sessions={sessions}
         currentSessionId={currentSessionId}
         displayName={displayName || 'A'}
+        isAdmin={isAdmin}
         collapsed={sidebarCollapsed}
         mobileOpen={sidebarMobileOpen}
         onNewChat={() => setNewChatOpen(true)}

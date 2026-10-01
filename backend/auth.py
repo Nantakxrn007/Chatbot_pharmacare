@@ -17,22 +17,47 @@ from backend.config import USERS_FILE, JWT_SECRET, TOKEN_EXPIRE_HOURS
 SECRET_KEY = JWT_SECRET
 
 
-# ─── Password Hashing (SHA-256 + salt, no extra dependency) ──────────────────
+# ─── Password Hashing (PBKDF2-HMAC-SHA256, stdlib) ───────────────────────────
+# รูปแบบใหม่: pbkdf2_sha256$<iterations>$<salt>$<hash>
+# รูปแบบเก่า (SHA-256 รอบเดียว "salt:hash") ยังตรวจผ่านได้ และถูกอัปเกรดตอน login สำเร็จ
+
+PBKDF2_ITERATIONS = 600_000
+_PBKDF2_PREFIX = "pbkdf2_sha256"
+
 
 def hash_password(password: str) -> str:
-    """Hash password ด้วย SHA-256 + random salt"""
     salt = os.urandom(16).hex()
-    hashed = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
-    return f"{salt}:{hashed}"
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), PBKDF2_ITERATIONS).hex()
+    return f"{_PBKDF2_PREFIX}${PBKDF2_ITERATIONS}${salt}${digest}"
 
 
 def verify_password(password: str, stored_hash: str) -> bool:
-    """ตรวจ password กับ hash ที่เก็บไว้"""
+    if stored_hash.startswith(_PBKDF2_PREFIX + "$"):
+        try:
+            _, iters, salt, digest = stored_hash.split("$", 3)
+            check = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), int(iters)).hex()
+        except (ValueError, TypeError):
+            return False
+        return hmac.compare_digest(check, digest)
+
     if ":" not in stored_hash:
         return False
     salt, hashed = stored_hash.split(":", 1)
     check = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
     return hmac.compare_digest(check, hashed)
+
+
+def _needs_rehash(stored_hash: str) -> bool:
+    if not stored_hash.startswith(_PBKDF2_PREFIX + "$"):
+        return True
+    try:
+        return int(stored_hash.split("$", 3)[1]) < PBKDF2_ITERATIONS
+    except (ValueError, IndexError):
+        return True
+
+
+# hash หลอกไว้ตรวจเมื่อไม่มี username นั้น → เวลาตอบเท่ากัน ไม่เปิดช่องเดา username จากความเร็ว
+_DUMMY_HASH = hash_password("dummy-password-for-timing")
 
 
 # ─── JWT (simple implementation, no pyjwt dependency) ────────────────────────
@@ -115,12 +140,33 @@ def _save_users(users: list[dict]):
 
 
 def verify_credentials(username: str, password: str) -> bool:
-    """ตรวจ username + password"""
+    """ตรวจ username + password (และอัปเกรด hash เก่าเป็น PBKDF2 เมื่อผ่าน)"""
     users = _load_users()
     for user in users:
         if user["username"] == username:
-            return verify_password(password, user["password_hash"])
+            if not verify_password(password, user["password_hash"]):
+                return False
+            if _needs_rehash(user["password_hash"]):
+                user["password_hash"] = hash_password(password)
+                _save_users(users)
+            return True
+    verify_password(password, _DUMMY_HASH)
     return False
+
+
+def list_users() -> list[dict]:
+    """ข้อมูลผู้ใช้สำหรับหน้า admin — ไม่รวม password hash"""
+    return [
+        {"username": u["username"], "display_name": u.get("display_name", u["username"]), "role": u.get("role", "user")}
+        for u in _load_users()
+    ]
+
+
+def get_user_role(username: str) -> str:
+    for user in _load_users():
+        if user["username"] == username:
+            return user.get("role", "user")
+    return "user"
 
 
 def get_user_display_name(username: str) -> str:
@@ -137,17 +183,19 @@ def init_default_users():
     if USERS_FILE.exists():
         return
     
+    initial_password = os.getenv("ADMIN_INITIAL_PASSWORD") or base64.urlsafe_b64encode(os.urandom(12)).decode()
     default_users = [
         {
             "username": "admin",
-            "password_hash": hash_password("123"),
+            "password_hash": hash_password(initial_password),
             "display_name": "ผู้ดูแลระบบ",
             "role": "admin"
         }
     ]
     _save_users(default_users)
     print(f"[AUTH] Created default users file: {USERS_FILE}")
-    print(f"[AUTH] Default login: admin / 123")
+    if not os.getenv("ADMIN_INITIAL_PASSWORD"):
+        print(f"[AUTH] Initial admin password (shown once, change it): {initial_password}")
 
 
 # ─── Add User Helper (สำหรับเพิ่มผู้ใช้ใหม่) ────────────────────────────────

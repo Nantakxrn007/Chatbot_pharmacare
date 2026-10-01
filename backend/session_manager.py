@@ -3,10 +3,18 @@ Session Manager — จัดการ chat sessions ลง SQLite
 รองรับ patient-centric sessions (เชื่อมกับชื่อผู้ป่วย)
 """
 
+import shutil
 import sqlite3
 import uuid
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from backend.crypto_utils import (
+    encrypt, decrypt, encrypt_json, decrypt_json, blind_index, is_encrypted, require_keys,
+)
+
+NEW_CHAT_TITLE = "แชทใหม่"
 
 class SessionManager:
     """
@@ -21,12 +29,88 @@ class SessionManager:
             self.db_path = db_path
             
         self._max_messages = max_messages_per_session
+        require_keys()
+        self._backup_if_plaintext()
         self._init_db()
+        self._migrate_encrypt()
 
     def _get_conn(self):
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA secure_delete = ON")
         return conn
+
+    @staticmethod
+    def _dec_session(row) -> dict:
+        d = dict(row)
+        for k in ("title", "patient_name", "session_title"):
+            if k in d:
+                d[k] = decrypt(d[k])
+        d.pop("patient_key", None)
+        return d
+
+    def _backup_if_plaintext(self):
+        """มีข้อมูลที่ยังไม่เข้ารหัส → สำรองไฟล์ DB ก่อนแตะโครงสร้าง/ข้อมูลใดๆ"""
+        if not Path(self.db_path).exists():
+            return
+        plaintext_found = False
+        conn = sqlite3.connect(self.db_path)
+        try:
+            for q in (
+                "SELECT 1 FROM messages WHERE content IS NOT NULL AND content != '' AND content NOT LIKE 'enc1:%' LIMIT 1",
+                "SELECT 1 FROM sessions WHERE patient_name IS NOT NULL AND patient_name NOT LIKE 'enc1:%' LIMIT 1",
+            ):
+                if conn.execute(q).fetchone():
+                    plaintext_found = True
+                    break
+        except sqlite3.OperationalError:
+            pass
+        finally:
+            conn.close()
+        if not plaintext_found:
+            return
+        from backend.config import BACKUP_DIR
+        Path(BACKUP_DIR).mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup = Path(BACKUP_DIR) / f"{Path(self.db_path).stem}.{stamp}.plaintext.bak"
+        shutil.copy2(self.db_path, backup)
+        backup.chmod(0o600)
+        print(f"[SECURITY] Encrypting existing data. Plaintext backup: {backup} (delete after verifying)")
+
+    def _migrate_encrypt(self):
+        """เข้ารหัสข้อมูลเก่าที่ยังเป็น plaintext (ทำซ้ำได้ปลอดภัย) — สำรองไฟล์ก่อนแตะข้อมูลเสมอ"""
+        with self._get_conn() as conn:
+            need_sessions = conn.execute(
+                "SELECT COUNT(*) FROM sessions WHERE patient_key IS NULL "
+                "OR (title IS NOT NULL AND title NOT LIKE 'enc1:%') "
+                "OR (patient_name IS NOT NULL AND patient_name NOT LIKE 'enc1:%')"
+            ).fetchone()[0]
+            need_msgs = conn.execute(
+                "SELECT COUNT(*) FROM messages WHERE content IS NOT NULL AND content != '' AND content NOT LIKE 'enc1:%'"
+            ).fetchone()[0]
+            need_sums = conn.execute(
+                "SELECT COUNT(*) FROM patient_summaries WHERE summary_json IS NOT NULL AND summary_json NOT LIKE 'enc1:%'"
+            ).fetchone()[0]
+            if not (need_sessions or need_msgs or need_sums):
+                return
+
+            for r in conn.execute("SELECT id, title, patient_name FROM sessions").fetchall():
+                name_plain = decrypt(r["patient_name"])
+                conn.execute(
+                    "UPDATE sessions SET title = ?, patient_name = ?, patient_key = ? WHERE id = ?",
+                    (encrypt(decrypt(r["title"])), encrypt(name_plain),
+                     blind_index(name_plain) if name_plain else None, r["id"]),
+                )
+            for r in conn.execute(
+                "SELECT id, content FROM messages WHERE content IS NOT NULL AND content != '' AND content NOT LIKE 'enc1:%'"
+            ).fetchall():
+                conn.execute("UPDATE messages SET content = ? WHERE id = ?", (encrypt(r["content"]), r["id"]))
+            for r in conn.execute(
+                "SELECT rowid AS rid, summary_json FROM patient_summaries WHERE summary_json NOT LIKE 'enc1:%'"
+            ).fetchall():
+                conn.execute("UPDATE patient_summaries SET summary_json = ? WHERE rowid = ?", (encrypt(r["summary_json"]), r["rid"]))
+            conn.commit()
+            conn.execute("VACUUM")
 
     def _init_db(self):
         with self._get_conn() as conn:
@@ -100,20 +184,48 @@ class SessionManager:
             if "username" not in cols:
                 conn.execute("ALTER TABLE sessions ADD COLUMN username TEXT DEFAULT 'admin'")
                 conn.execute("UPDATE sessions SET username = 'admin' WHERE username IS NULL")
+            if "patient_key" not in cols:
+                conn.execute("ALTER TABLE sessions ADD COLUMN patient_key TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_patient_key ON sessions(username, patient_key)")
             conn.commit()
+
+            # patient_summaries ใช้ blind index เป็นคีย์ (ชื่อที่เข้ารหัสแล้วใช้เป็น PK ไม่ได้)
+            cols_ps = [row[1] for row in conn.execute("PRAGMA table_info(patient_summaries)").fetchall()]
+            if "patient_key" not in cols_ps:
+                conn.execute('''
+                    CREATE TABLE patient_summaries_v3 (
+                        patient_key TEXT,
+                        username TEXT,
+                        patient_name TEXT,
+                        summary_json TEXT,
+                        updated_at TEXT,
+                        PRIMARY KEY (patient_key, username)
+                    )
+                ''')
+                for r in conn.execute("SELECT * FROM patient_summaries").fetchall():
+                    name = decrypt(r["patient_name"])
+                    if not name:
+                        continue
+                    conn.execute(
+                        "INSERT OR REPLACE INTO patient_summaries_v3 VALUES (?, ?, ?, ?, ?)",
+                        (blind_index(name), r["username"], encrypt(name), r["summary_json"], r["updated_at"]),
+                    )
+                conn.execute("DROP TABLE patient_summaries")
+                conn.execute("ALTER TABLE patient_summaries_v3 RENAME TO patient_summaries")
+                conn.commit()
 
     # ─── Create ──────────────────────────────────────────────────────────────
 
     def create_session(self, username: str, title: str = None, patient_name: str = None) -> dict:
         session_id = str(uuid.uuid4())[:8]
         now = datetime.now(timezone.utc).isoformat()
-        p_name = patient_name or title or "แชทใหม่"
+        p_name = patient_name or title or NEW_CHAT_TITLE
         title = title or p_name
         
         with self._get_conn() as conn:
             conn.execute(
-                "INSERT INTO sessions (id, title, patient_name, username, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (session_id, title, p_name, username, now, now)
+                "INSERT INTO sessions (id, title, patient_name, patient_key, username, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (session_id, encrypt(title), encrypt(p_name), blind_index(p_name), username, now, now)
             )
             conn.commit()
             
@@ -135,14 +247,14 @@ class SessionManager:
             if not row:
                 return None
                 
-            session = dict(row)
+            session = self._dec_session(row)
             msg_rows = conn.execute("SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC, id ASC", (session_id,)).fetchall()
             
             messages = []
             for m in msg_rows:
                 messages.append({
                     "role": m["role"],
-                    "content": m["content"],
+                    "content": decrypt(m["content"]),
                     "sources": json.loads(m["sources"]) if m["sources"] else [],
                     "timestamp": m["timestamp"],
                     "prompt_tokens": m["prompt_tokens"] if "prompt_tokens" in m.keys() else 0,
@@ -161,7 +273,7 @@ class SessionManager:
                 GROUP BY s.id 
                 ORDER BY s.updated_at DESC
             ''', (username,)).fetchall()
-            return [dict(r) for r in rows]
+            return [self._dec_session(r) for r in rows]
 
     # ─── Patient-Centric Queries ─────────────────────────────────────────────
 
@@ -169,8 +281,8 @@ class SessionManager:
         """ตรวจว่ามี session ที่ใช้ชื่อผู้ป่วยนี้อยู่แล้วหรือไม่สำหรับ user นี้"""
         with self._get_conn() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) FROM sessions WHERE patient_name = ? AND username = ?",
-                (patient_name, username)
+                "SELECT COUNT(*) FROM sessions WHERE patient_key = ? AND username = ?",
+                (blind_index(patient_name), username)
             ).fetchone()
             return row[0] > 0
 
@@ -181,18 +293,18 @@ class SessionManager:
                 SELECT s.*, COUNT(m.id) as message_count 
                 FROM sessions s 
                 LEFT JOIN messages m ON s.id = m.session_id 
-                WHERE s.patient_name = ? AND s.username = ?
+                WHERE s.patient_key = ? AND s.username = ?
                 GROUP BY s.id 
                 ORDER BY s.created_at ASC
-            ''', (patient_name, username)).fetchall()
-            return [dict(r) for r in rows]
+            ''', (blind_index(patient_name), username)).fetchall()
+            return [self._dec_session(r) for r in rows]
 
     def get_all_patients(self, username: str) -> list[dict]:
         """ดึงรายชื่อผู้ป่วยทั้งหมด (distinct patient_name) พร้อมข้อมูลสรุป สำหรับ user นี้"""
         with self._get_conn() as conn:
             rows = conn.execute('''
                 SELECT 
-                    s.patient_name,
+                    MAX(s.patient_name) as patient_name,
                     COUNT(DISTINCT s.id) as session_count,
                     SUM(msg_count) as total_messages,
                     MIN(s.created_at) as first_visit,
@@ -203,11 +315,16 @@ class SessionManager:
                     FROM messages 
                     GROUP BY session_id
                 ) mc ON s.id = mc.session_id
-                WHERE s.patient_name IS NOT NULL AND s.patient_name != 'แชทใหม่' AND s.username = ?
-                GROUP BY s.patient_name
+                WHERE s.patient_key IS NOT NULL AND s.patient_key != ? AND s.username = ?
+                GROUP BY s.patient_key
                 ORDER BY MAX(s.updated_at) DESC
-            ''', (username,)).fetchall()
-            return [dict(r) for r in rows]
+            ''', (blind_index(NEW_CHAT_TITLE), username)).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["patient_name"] = decrypt(d["patient_name"])
+                out.append(d)
+            return out
 
     def get_patient_all_messages(self, patient_name: str, username: str) -> list[dict]:
         """รวม messages จากทุก session ของผู้ป่วยคนนี้ (สำหรับ LLM summary) สำหรับ user นี้"""
@@ -216,10 +333,16 @@ class SessionManager:
                 SELECT m.role, m.content, m.timestamp, s.title as session_title, s.created_at as session_date
                 FROM messages m
                 JOIN sessions s ON m.session_id = s.id
-                WHERE s.patient_name = ? AND s.username = ?
+                WHERE s.patient_key = ? AND s.username = ?
                 ORDER BY m.timestamp ASC
-            ''', (patient_name, username)).fetchall()
-            return [dict(r) for r in rows]
+            ''', (blind_index(patient_name), username)).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["content"] = decrypt(d["content"])
+                d["session_title"] = decrypt(d["session_title"])
+                out.append(d)
+            return out
 
     # ─── Patient Summary Cache ───────────────────────────────────────────────
 
@@ -227,14 +350,14 @@ class SessionManager:
         """ดึง cached summary ของผู้ป่วย สำหรับ user นี้"""
         with self._get_conn() as conn:
             row = conn.execute(
-                "SELECT * FROM patient_summaries WHERE patient_name = ? AND username = ?",
-                (patient_name, username)
+                "SELECT * FROM patient_summaries WHERE patient_key = ? AND username = ?",
+                (blind_index(patient_name), username)
             ).fetchone()
             if not row:
                 return None
             return {
-                "patient_name": row["patient_name"],
-                "summary": json.loads(row["summary_json"]),
+                "patient_name": decrypt(row["patient_name"]),
+                "summary": decrypt_json(row["summary_json"]),
                 "updated_at": row["updated_at"],
             }
 
@@ -243,12 +366,13 @@ class SessionManager:
         now = datetime.now(timezone.utc).isoformat()
         with self._get_conn() as conn:
             conn.execute('''
-                INSERT INTO patient_summaries (patient_name, username, summary_json, updated_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(patient_name, username) DO UPDATE SET 
+                INSERT INTO patient_summaries (patient_key, username, patient_name, summary_json, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(patient_key, username) DO UPDATE SET 
+                    patient_name = excluded.patient_name,
                     summary_json = excluded.summary_json,
                     updated_at = excluded.updated_at
-            ''', (patient_name, username, json.dumps(summary, ensure_ascii=False), now))
+            ''', (blind_index(patient_name), username, encrypt(patient_name), encrypt_json(summary), now))
             conn.commit()
 
     # ─── Update ──────────────────────────────────────────────────────────────
@@ -264,18 +388,18 @@ class SessionManager:
             
             conn.execute(
                 "INSERT INTO messages (session_id, role, content, sources, timestamp, prompt_tokens, completion_tokens) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (session_id, role, content, sources_json, now, prompt_tokens, completion_tokens)
+                (session_id, role, encrypt(content), sources_json, now, prompt_tokens, completion_tokens)
             )
             
             # Auto-title
             session = conn.execute("SELECT title FROM sessions WHERE id = ?", (session_id,)).fetchone()
-            new_title = session["title"]
-            if role == "user" and session["title"] == "แชทใหม่":
+            new_title = decrypt(session["title"])
+            if role == "user" and new_title == NEW_CHAT_TITLE:
                 new_title = content[:50] + ("..." if len(content) > 50 else "")
                 
             conn.execute(
                 "UPDATE sessions SET updated_at = ?, title = ? WHERE id = ?",
-                (now, new_title, session_id)
+                (now, encrypt(new_title), session_id)
             )
             
             # Removed auto-delete block. We handle pruning with summarization externally.
@@ -361,7 +485,7 @@ class SessionManager:
                 "SELECT * FROM messages WHERE session_id = ? AND role != 'system' ORDER BY timestamp ASC, id ASC LIMIT ?",
                 (session_id, limit)
             ).fetchall()
-            return [{"id": r["id"], "role": r["role"], "content": r["content"], "timestamp": r["timestamp"], "prompt_tokens": r["prompt_tokens"] if "prompt_tokens" in r.keys() else 0, "completion_tokens": r["completion_tokens"] if "completion_tokens" in r.keys() else 0} for r in rows]
+            return [{"id": r["id"], "role": r["role"], "content": decrypt(r["content"]), "timestamp": r["timestamp"], "prompt_tokens": r["prompt_tokens"] if "prompt_tokens" in r.keys() else 0, "completion_tokens": r["completion_tokens"] if "completion_tokens" in r.keys() else 0} for r in rows]
 
     def replace_messages_with_summary(self, session_id: str, message_ids_to_delete: list[int], summary_content: str):
         """
@@ -390,7 +514,7 @@ class SessionManager:
 
             conn.execute(
                 "INSERT INTO messages (session_id, role, content, sources, timestamp, prompt_tokens, completion_tokens) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (session_id, "system", summary_content, "[]", timestamp_for_summary, 0, 0)
+                (session_id, "system", encrypt(summary_content), "[]", timestamp_for_summary, 0, 0)
             )
             conn.commit()
 
@@ -411,24 +535,45 @@ class SessionManager:
             if not row:
                 return False
             
-            old_name = row["patient_name"]
+            old_name = decrypt(row["patient_name"])
+            new_key = blind_index(new_title)
             
             conn.execute(
-                "UPDATE sessions SET title = ?, patient_name = ?, updated_at = ? WHERE id = ?",
-                (new_title, new_title, datetime.now(timezone.utc).isoformat(), session_id)
+                "UPDATE sessions SET title = ?, patient_name = ?, patient_key = ?, updated_at = ? WHERE id = ?",
+                (encrypt(new_title), encrypt(new_title), new_key, datetime.now(timezone.utc).isoformat(), session_id)
             )
             
             if old_name and old_name != new_title:
-                # Update cache so the summary moves to the new name
+                old_key = blind_index(old_name)
                 try:
-                    conn.execute("UPDATE patient_summaries SET patient_name = ? WHERE patient_name = ? AND username = ?", (new_title, old_name, username))
+                    conn.execute(
+                        "UPDATE patient_summaries SET patient_key = ?, patient_name = ? WHERE patient_key = ? AND username = ?",
+                        (new_key, encrypt(new_title), old_key, username),
+                    )
                 except sqlite3.IntegrityError:
-                    # If the new name already exists, we can optionally delete the old one or merge. 
-                    # For simplicity, we just delete the old orphaned summary cache.
-                    conn.execute("DELETE FROM patient_summaries WHERE patient_name = ? AND username = ?", (old_name, username))
+                    conn.execute("DELETE FROM patient_summaries WHERE patient_key = ? AND username = ?", (old_key, username))
             
             conn.commit()
             return True
+
+    # ─── Admin stats (counts only, no PII) ───────────────────────────────────
+
+    def get_security_stats(self) -> dict:
+        with self._get_conn() as conn:
+            users = [dict(r) for r in conn.execute(
+                "SELECT s.username, COUNT(DISTINCT s.id) AS sessions, COUNT(m.id) AS messages, MAX(s.updated_at) AS last_activity "
+                "FROM sessions s LEFT JOIN messages m ON m.session_id = s.id GROUP BY s.username"
+            )]
+            def one(sql):
+                return conn.execute(sql).fetchone()[0]
+            return {
+                "users": users,
+                "sessions_total": one("SELECT COUNT(*) FROM sessions"),
+                "messages_total": one("SELECT COUNT(*) FROM messages"),
+                "messages_encrypted": one("SELECT COUNT(*) FROM messages WHERE content LIKE 'enc1:%'"),
+                "messages_plaintext": one("SELECT COUNT(*) FROM messages WHERE content IS NOT NULL AND content != '' AND content NOT LIKE 'enc1:%'"),
+                "sessions_plaintext": one("SELECT COUNT(*) FROM sessions WHERE patient_name IS NOT NULL AND patient_name NOT LIKE 'enc1:%'"),
+            }
 
     # ─── Delete ──────────────────────────────────────────────────────────────
 

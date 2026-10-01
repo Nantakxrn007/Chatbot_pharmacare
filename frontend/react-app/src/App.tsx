@@ -4,6 +4,7 @@ import ChatPage from './pages/ChatPage';
 import PatientsPage from './pages/PatientsPage';
 import PatientDetailPage from './pages/PatientDetailPage';
 import TestCasePage from './pages/TestCasePage';
+import AdminPage from './pages/AdminPage';
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
       <Route path="/patients" element={<PatientsPage />} />
       <Route path="/patient/:name" element={<PatientDetailPage />} />
       <Route path="/testcase" element={<TestCasePage />} />
+      <Route path="/admin" element={<AdminPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

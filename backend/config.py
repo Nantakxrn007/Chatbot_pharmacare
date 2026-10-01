@@ -176,8 +176,35 @@ LLM_RETRY_BACKOFF = float(os.getenv("LLM_RETRY_BACKOFF") or 1.2)  # seconds, gro
 
 # ─── Auth ────────────────────────────────────────────────────────────────────
 
-JWT_SECRET = os.getenv("JWT_SECRET", "pharmacare-ai-secret-key-change-me-in-production")
+_INSECURE_DEFAULT_JWT_SECRET = "pharmacare-ai-secret-key-change-me-in-production"
+JWT_SECRET = os.getenv("JWT_SECRET") or _INSECURE_DEFAULT_JWT_SECRET
+JWT_SECRET_IS_DEFAULT = JWT_SECRET == _INSECURE_DEFAULT_JWT_SECRET
 TOKEN_EXPIRE_HOURS = int(os.getenv("TOKEN_EXPIRE_HOURS") or 24)
+
+# ─── Data security ───────────────────────────────────────────────────────────
+
+# เข้ารหัสข้อมูลผู้ป่วย/เนื้อหาแชทใน SQLite (Fernet) — ห้ามหาย: ถ้าไม่มีคีย์นี้ข้อมูลที่เข้ารหัสแล้วอ่านไม่ได้
+DATA_ENCRYPTION_KEY = os.getenv("DATA_ENCRYPTION_KEY")
+# กุญแจแยกสำหรับ blind index (ใช้ค้นหาชื่อผู้ป่วยโดยไม่เก็บชื่อจริงเป็น plaintext)
+BLIND_INDEX_KEY = os.getenv("BLIND_INDEX_KEY")
+
+AUDIT_DB = DATA_DIR / "audit_log.db"
+BACKUP_DIR = PROJECT_ROOT / "backups"
+
+# ไฟล์ใน DATA_DIR ที่เปิดให้ดาวน์โหลดผ่าน /data/ ได้ (ต้อง login) — นอกนั้น 404
+PUBLIC_DATA_EXTENSIONS: tuple[str, ...] = (".pdf",)
+
+# Rate limit (ครั้ง / วินาที-หน้าต่าง)
+LOGIN_MAX_FAILS = int(os.getenv("LOGIN_MAX_FAILS") or 5)               # ผิดได้กี่ครั้งก่อนล็อก
+LOGIN_FAIL_WINDOW_SEC = int(os.getenv("LOGIN_FAIL_WINDOW_SEC") or 900)  # นับย้อนหลัง 15 นาที
+LOGIN_LOCKOUT_SEC = int(os.getenv("LOGIN_LOCKOUT_SEC") or 900)         # ล็อก 15 นาที
+API_RATE_LIMIT = int(os.getenv("API_RATE_LIMIT") or 120)               # ต่อผู้ใช้/IP ต่อนาที
+CHAT_RATE_LIMIT = int(os.getenv("CHAT_RATE_LIMIT") or 20)              # endpoint ที่เรียก LLM ต่อนาที
+
+# true เมื่อรันหลัง HTTPS (reverse proxy) → cookie เป็น Secure + ส่ง HSTS
+COOKIE_SECURE = (os.getenv("COOKIE_SECURE") or "").lower() in {"1", "true", "yes"}
+# true เมื่อ proxy ที่เชื่อถือได้ใส่ X-Forwarded-For / X-Forwarded-Proto
+TRUST_PROXY_HEADERS = (os.getenv("TRUST_PROXY_HEADERS") or "").lower() in {"1", "true", "yes"}
 
 
 def qdrant_path() -> str:

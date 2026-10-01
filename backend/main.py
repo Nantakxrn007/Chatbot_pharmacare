@@ -58,11 +58,16 @@ from backend.rag_engine import generate_answer, evaluate_answer, evaluate_answer
 from backend.session_manager import SessionManager
 from backend.semantic_memory import semantic_memory
 from backend.patient_summary import generate_patient_summary
-from backend.auth import verify_credentials, create_token, verify_token, get_user_display_name
+from backend.auth import verify_credentials, create_token, verify_token, get_user_display_name, get_user_role, list_users
+from backend.audit_log import audit_log
+from backend.crypto_utils import short_ref
+from backend.rate_limiter import api_limiter, login_guard, get_client_ip
 from backend.config import (
     PROJECT_ROOT, FRONTEND_DIR, DATA_DIR, TEST_CASE_CSV, CHAT_HISTORY_DB, DRUGS_JSON,
     RECENT_WINDOW, COMPACT_THRESHOLD, COMPACT_BATCH, SUMMARY_BLOCK_MAX,
     MEMORY_MIN_SIMILARITY, MEMORY_RECALL_TOP_K, MEMORY_MIN_SESSION_MESSAGES,
+    JWT_SECRET_IS_DEFAULT, COOKIE_SECURE, TOKEN_EXPIRE_HOURS, PUBLIC_DATA_EXTENSIONS,
+    API_RATE_LIMIT, CHAT_RATE_LIMIT,
 )
 from datetime import datetime, timezone
 
@@ -117,6 +122,10 @@ async def lifespan(app: FastAPI):
     print("  Open in browser: http://localhost:8899")
     print("  (Docker maps host 8899 → container uvicorn :8000)")
     print("=" * 60)
+    if JWT_SECRET_IS_DEFAULT:
+        print("[SECURITY] WARNING: JWT_SECRET ไม่ได้ตั้งใน .env — ใครก็ปลอม token ได้")
+    if not COOKIE_SECURE:
+        print("[SECURITY] COOKIE_SECURE=false — ใช้ได้เฉพาะ http://localhost; ขึ้น HTTPS แล้วให้ตั้งเป็น true")
     yield
     print("\n[SHUTDOWN] Server stopped.")
 
@@ -137,8 +146,28 @@ sessions = SessionManager(db_path=str(CHAT_HISTORY_DB), max_messages_per_session
 
 FRONTEND_DIR.mkdir(exist_ok=True)
 
+def _extract_token(headers, cookies) -> str | None:
+    auth_header = headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header[7:]
+    return cookies.get("token")
+
+
+class ProtectedDocFiles(StaticFiles):
+    """เสิร์ฟเฉพาะไฟล์เอกสาร (.pdf) และต้องล็อกอินก่อน — users.json / *.db / chunks.jsonl เข้าถึงไม่ได้"""
+
+    async def get_response(self, path: str, scope):
+        if not path.lower().endswith(PUBLIC_DATA_EXTENSIONS):
+            raise HTTPException(status_code=404, detail="Not found")
+        request = Request(scope)
+        token = _extract_token(request.headers, request.cookies)
+        if not token or not verify_token(token):
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        return await super().get_response(path, scope)
+
+
 if DATA_DIR.exists():
-    app.mount("/data", StaticFiles(directory=str(DATA_DIR)), name="data")
+    app.mount("/data", ProtectedDocFiles(directory=str(DATA_DIR)), name="data")
 
 # React frontend (Vite build output). Only mounted once it's been built
 # (`npm run build` inside frontend/react-app) so a missing dist/ folder never
@@ -156,16 +185,7 @@ PUBLIC_PATHS = {"/api/login", "/api/health", "/login", "/", "/testcase", "/patie
 
 async def get_current_user(request: Request) -> str:
     """Extract and verify JWT token from Authorization header or cookie"""
-    token = None
-    
-    # Try Authorization header first
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:]
-    
-    # Try cookie
-    if not token:
-        token = request.cookies.get("token")
+    token = _extract_token(request.headers, request.cookies)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -175,6 +195,74 @@ async def get_current_user(request: Request) -> str:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     
     return username
+
+
+async def require_admin(username: str = Depends(get_current_user)) -> str:
+    if get_user_role(username) != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    return username
+
+
+# ─── Security Middleware: rate limit + audit + headers ───────────────────────
+
+_PATIENT_PATH_RE = re.compile(r"^/api/patients/(?!check-name$)([^/]+)(/.*)?$")
+_LLM_PATHS = ("/api/chat", "/api/testcases/run-one")
+_AUDIT_SKIP = {"/api/health", "/api/me", "/api/login"}
+
+
+def _audit_resource(path: str) -> str:
+    m = _PATIENT_PATH_RE.match(path)
+    if m:
+        return f"/api/patients/patient:{short_ref(m.group(1))}{m.group(2) or ''}"
+    return path
+
+
+def _rate_limited(retry_after: int, message: str) -> JSONResponse:
+    return JSONResponse(
+        {"detail": f"{message} กรุณารอ {retry_after} วินาทีแล้วลองใหม่"},
+        status_code=429,
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    path = request.url.path
+    ip = get_client_ip(request)
+    is_api = path.startswith("/api/")
+    token = _extract_token(request.headers, request.cookies) if is_api else None
+    username = (verify_token(token) if token else None) or ""
+
+    if is_api and path != "/api/health":
+        who = username or ip
+        ok, retry = api_limiter.hit(f"api:{who}", API_RATE_LIMIT, 60)
+        if ok and (path.startswith(_LLM_PATHS) or (request.method == "POST" and path.endswith("/summary"))):
+            ok, retry = api_limiter.hit(f"llm:{who}", CHAT_RATE_LIMIT, 60)
+        if not ok:
+            await asyncio.to_thread(
+                audit_log.log, "rate_limited", username, ip, _audit_resource(path), "blocked", f"retry_after={retry}"
+            )
+            return _rate_limited(retry, "ส่งคำขอถี่เกินไป")
+
+    response = await call_next(request)
+
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    if is_api:
+        response.headers.setdefault("Cache-Control", "no-store")
+    if COOKIE_SECURE:
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+
+    if is_api and path not in _AUDIT_SKIP and (username or response.status_code in (401, 403)):
+        await asyncio.to_thread(
+            audit_log.log,
+            f"{request.method} {path.split('/')[2] if path.count('/') >= 2 else path}",
+            username, ip, _audit_resource(path),
+            "ok" if response.status_code < 400 else "denied" if response.status_code in (401, 403) else "error",
+            f"http={response.status_code}",
+        )
+    return response
 
 
 # ─── Models ──────────────────────────────────────────────────────────────────
@@ -233,6 +321,10 @@ async def login_page():
 async def testcase_page():
     return _serve_react_app()
 
+@app.get("/admin")
+async def admin_page():
+    return _serve_react_app()
+
 @app.get("/patients")
 async def patients_page():
     return _serve_react_app()
@@ -245,9 +337,24 @@ async def patient_page(patient_name: str):
 # ─── Auth API ────────────────────────────────────────────────────────────────
 
 @app.post("/api/login")
-async def login(req: LoginRequest):
-    if not verify_credentials(req.username, req.password):
+async def login(req: LoginRequest, request: Request):
+    ip = get_client_ip(request)
+    wait = login_guard.check(ip, req.username)
+    if wait:
+        await asyncio.to_thread(audit_log.log, "login", req.username, ip, "", "locked", f"retry_after={wait}")
+        return _rate_limited(wait, "ลอง login ผิดหลายครั้งเกินไป ระบบล็อกชั่วคราว")
+
+    if not await asyncio.to_thread(verify_credentials, req.username, req.password):
+        locked = login_guard.record_failure(ip, req.username)
+        await asyncio.to_thread(
+            audit_log.log, "login", req.username, ip, "", "failed", "locked" if locked else ""
+        )
+        if locked:
+            return _rate_limited(locked, "ลอง login ผิดหลายครั้งเกินไป ระบบล็อกชั่วคราว")
         raise HTTPException(status_code=401, detail="ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
+
+    login_guard.record_success(ip, req.username)
+    await asyncio.to_thread(audit_log.log, "login", req.username, ip, "", "ok", "")
     
     token = create_token(req.username)
     display_name = get_user_display_name(req.username)
@@ -262,8 +369,9 @@ async def login(req: LoginRequest):
         key="token",
         value=token,
         httponly=True,
-        max_age=86400,
+        max_age=TOKEN_EXPIRE_HOURS * 3600,
         samesite="lax",
+        secure=COOKIE_SECURE,
     )
     return response
 
@@ -273,6 +381,7 @@ async def get_me(username: str = Depends(get_current_user)):
     return {
         "username": username,
         "display_name": display_name,
+        "role": get_user_role(username),
     }
 
 @app.post("/api/logout")
@@ -746,6 +855,44 @@ async def generate_or_update_summary(patient_name: str, username: str = Depends(
         "summary": summary,
         "summary_updated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+# ─── Admin: Audit Log ────────────────────────────────────────────────────────
+
+@app.get("/api/admin/audit")
+async def get_audit_log(limit: int = 100, username: str | None = None, action: str | None = None,
+                        since: str | None = None, status: str | None = None,
+                        admin: str = Depends(require_admin)):
+    return audit_log.query(limit=limit, username=username, action=action, since=since, status=status)
+
+
+@app.get("/api/admin/overview")
+async def admin_overview(hours: int = 24, admin: str = Depends(require_admin)):
+    """ภาพรวมความปลอดภัย — เป็นตัวเลขล้วน ไม่มีชื่อผู้ป่วยหรือเนื้อหาแชท"""
+    hours = max(1, min(hours, 24 * 30))
+    stats = await asyncio.to_thread(sessions.get_security_stats)
+    activity = {u["username"]: u for u in stats["users"]}
+    users = [{**u, **{k: activity.get(u["username"], {}).get(k) for k in ("sessions", "messages", "last_activity")}}
+             for u in list_users()]
+    return {
+        "audit": await asyncio.to_thread(audit_log.summary, hours),
+        "chain": await asyncio.to_thread(audit_log.verify_chain),
+        "users": users,
+        "data": {k: v for k, v in stats.items() if k != "users"},
+        "locked": login_guard.locked_entries(),
+        "config": {
+            "jwt_secret_default": JWT_SECRET_IS_DEFAULT,
+            "cookie_secure": COOKIE_SECURE,
+            "token_expire_hours": TOKEN_EXPIRE_HOURS,
+            "api_rate_limit": API_RATE_LIMIT,
+            "chat_rate_limit": CHAT_RATE_LIMIT,
+        },
+    }
+
+
+@app.get("/api/admin/audit/verify")
+async def verify_audit_log(admin: str = Depends(require_admin)):
+    return audit_log.verify_chain()
 
 
 # ─── Health ──────────────────────────────────────────────────────────────────

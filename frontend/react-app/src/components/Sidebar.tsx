@@ -50,6 +50,7 @@ interface Props {
   sessions: Session[];
   currentSessionId: string | null;
   displayName: string;
+  isAdmin?: boolean;
   collapsed: boolean;
   mobileOpen: boolean;
   onNewChat: () => void;
@@ -65,6 +66,7 @@ export default function Sidebar({
   sessions,
   currentSessionId,
   displayName,
+  isAdmin,
   collapsed,
   mobileOpen,
   onNewChat,
@@ -182,6 +184,14 @@ export default function Sidebar({
           </svg>
           รายการรหัสผู้ป่วยทั้งหมด
         </Link>
+        {isAdmin && (
+          <Link to="/admin" className="sidebar-nav-link" style={{ color: '#b42318' }}>
+            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+            Admin · Security
+          </Link>
+        )}
         <div className="user-section">
           <div className="user-avatar">{displayName.charAt(0).toUpperCase()}</div>
           <div className="user-info">

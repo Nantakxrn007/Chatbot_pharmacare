@@ -1,4 +1,6 @@
 import type {
+  AdminOverview,
+  AuditEvent,
   Drug,
   Me,
   Patient,
@@ -158,5 +160,18 @@ export async function runTestCase(tc: TestCase): Promise<TestCaseResult> {
     headers: authHeaders(),
     body: JSON.stringify(tc),
   });
+  return r.json();
+}
+
+export async function fetchAdminOverview(hours = 24): Promise<AdminOverview> {
+  const r = await fetch(`/api/admin/overview?hours=${hours}`, { headers: authHeaders() });
+  if (!r.ok) throw new Error(String(r.status));
+  return r.json();
+}
+
+export async function fetchAuditEvents(params: Record<string, string>): Promise<AuditEvent[]> {
+  const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v));
+  const r = await fetch(`/api/admin/audit?${qs}`, { headers: authHeaders() });
+  if (!r.ok) throw new Error(String(r.status));
   return r.json();
 }

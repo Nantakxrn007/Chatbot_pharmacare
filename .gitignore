@@ -248,3 +248,7 @@ _verify*.py
 .DS_Store
 Thumbs.db
 .claude/settings.local.json
+
+# Security: plaintext migration backups & audit log must never be committed
+backups/
+rag/data/audit_log.db*

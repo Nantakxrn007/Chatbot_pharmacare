@@ -9,6 +9,8 @@ from backend.rag_engine import embed_query, get_qdrant_client
 
 COLLECTION_NAME = "chat_memory"
 
+from backend.crypto_utils import encrypt, decrypt
+
 class SemanticMemory:
     def __init__(self):
         self._collection_ready = False
@@ -59,7 +61,7 @@ class SemanticMemory:
                         payload={
                             "session_id": session_id,
                             "role": role,
-                            "content": content,
+                            "content": encrypt(content),
                             "timestamp": timestamp
                         }
                     )
@@ -100,7 +102,7 @@ class SemanticMemory:
             for hit in search_result:
                 results.append({
                     "role": hit.payload.get("role", ""),
-                    "content": hit.payload.get("content", ""),
+                    "content": decrypt(hit.payload.get("content", "")),
                     "timestamp": hit.payload.get("timestamp", ""),
                     "similarity": hit.score
                 })
