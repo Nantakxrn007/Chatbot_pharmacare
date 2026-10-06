@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { marked } from 'marked';
 import { DRUG_NAME_PATTERN } from '../lib/drugNames';
 
@@ -764,14 +764,24 @@ function applyDiagnosisCard(root: HTMLElement) {
   });
 }
 
+// Block-level pieces a streamed answer grows by; new ones fade in.
+const FADE_BLOCKS = 'p, li, h1, h2, h3, h4, tr, blockquote, hr, .ai-diagnosis-card';
+const FADE_MS = 380;
+
 interface Props {
   content: string;
   onOpenSource: (source: string, page: string, type: string, heading: string) => void;
   className?: string;
+  /** Answer is streaming in: fade in blocks that weren't there last render. */
+  fadeInNew?: boolean;
 }
 
-export default function MarkdownMessage({ content, onOpenSource, className }: Props) {
+export default function MarkdownMessage({ content, onOpenSource, className, fadeInNew }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  // When each block (by document order) first appeared. Every content change
+  // rebuilds the HTML from scratch, so a block still mid-fade gets its
+  // animation resumed at the same point rather than restarted or cut short.
+  const blockBornAt = useRef<number[]>([]);
 
   useEffect(() => {
     const el = ref.current;
@@ -790,7 +800,10 @@ export default function MarkdownMessage({ content, onOpenSource, className }: Pr
     return () => el.removeEventListener('click', handler);
   }, [onOpenSource]);
 
-  useEffect(() => {
+  // Layout effect, not a plain effect: every content change swaps in fresh
+  // raw HTML, and decorating it after paint flashed the undecorated version
+  // first — many times a second while an answer streams in.
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     applyHeadingBadges(el);
@@ -801,6 +814,19 @@ export default function MarkdownMessage({ content, onOpenSource, className }: Pr
     applyNoteHighlights(el);
     applyDiagnosisCard(el);
     applySymptomHighlights(el);
+    if (fadeInNew) {
+      const now = performance.now();
+      const born = blockBornAt.current;
+      el.querySelectorAll<HTMLElement>(FADE_BLOCKS).forEach((block, i) => {
+        if (born[i] === undefined) born[i] = now;
+        const age = now - born[i];
+        if (age < FADE_MS) {
+          block.classList.add('md-fade-in');
+          block.style.animationDelay = `-${Math.round(age)}ms`;
+        }
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content]);
 
   return (

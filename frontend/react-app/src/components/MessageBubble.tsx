@@ -42,9 +42,11 @@ interface Props {
   onCopy?: (text: string) => void;
   onQuickAsk?: (q: string) => void;
   userInitial?: string;
+  /** Answer still arriving: hide copy/regenerate/time until it's complete. */
+  streaming?: boolean;
 }
 
-export default function MessageBubble({ message, onOpenSource, onEdit, onRegenerate, onCopy, onQuickAsk, userInitial }: Props) {
+export default function MessageBubble({ message, onOpenSource, onEdit, onRegenerate, onCopy, onQuickAsk, userInitial, streaming }: Props) {
   const t = formatTime(message.timestamp);
 
   if (message.role === 'user') {
@@ -105,8 +107,9 @@ export default function MessageBubble({ message, onOpenSource, onEdit, onRegener
           </svg>
         </div>
         <div className="ai-content">
-          <MarkdownMessage content={message.content} onOpenSource={onOpenSource} className="ai-text" />
+          <MarkdownMessage content={message.content} onOpenSource={onOpenSource} className="ai-text" fadeInNew={streaming} />
           <SourcesRow sources={message.sources} onOpenSource={onOpenSource} />
+          {!streaming && (<>
           <div className="ai-actions">
             <button
               className="msg-action-btn"
@@ -125,6 +128,7 @@ export default function MessageBubble({ message, onOpenSource, onEdit, onRegener
             </button>
           </div>
           <div className="msg-time">{t}</div>
+          </>)}
         </div>
       </div>
       {onQuickAsk && hasSymptomaticDrugAdvice(message.content) && (

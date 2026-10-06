@@ -23,7 +23,54 @@ import {
   searchSessions,
   streamChat,
 } from '../lib/api';
-import type { ChatModelOption, Message, Session } from '../types';
+import type { ChatModelOption, Message, Session, StreamEvent } from '../types';
+
+// Streamed answers are revealed a whole line at a time (each new line fades
+// in — see MarkdownMessage fadeInNew). Re-rendering per character re-ran all
+// the markdown decorations dozens of times a second and looked jittery.
+// true = keep the typing dots up and show the whole answer once it's complete
+// (no line-by-line reveal at all).
+const REVEAL_ALL_AT_ONCE = true;
+const REVEAL_TICK_MS = 40;
+const LINE_DELAY_MAX_MS = 420; // calm pace when little is waiting
+const LINE_DELAY_MIN_MS = 140; // catch-up pace when a burst is queued
+// A line still being written shows as-is once it has kept the reader waiting this long.
+const PARTIAL_LINE_WAIT_MS = 1200;
+const THAI_MARK = /[ัิ-ฺ็-๎]/;
+
+/**
+ * Move a reveal cut point so the partial text renders cleanly: never strand a
+ * Thai vowel/tone mark or half an emoji, and show a bold span, a [Ref ...]
+ * citation or a table row in one go (once its closer has arrived) instead of
+ * flashing raw markdown that then snaps into formatting.
+ */
+function safeRevealCut(text: string, cut: number): number {
+  while (cut < text.length && (THAI_MARK.test(text[cut]) || (text.charCodeAt(cut) & 0xfc00) === 0xdc00)) cut++;
+  const lineStart = text.lastIndexOf('\n', cut - 1) + 1;
+  let lineEnd = text.indexOf('\n', cut);
+  if (lineEnd === -1) lineEnd = text.length;
+  const line = text.slice(lineStart, cut);
+  let end = -1;
+  if (line.trimStart().startsWith('|')) {
+    end = lineEnd;
+  } else if ((line.split('**').length - 1) % 2 === 1 || line.endsWith('*')) {
+    // walk to the "**" that leaves every bold span on this line closed
+    let pos = text[cut - 1] === '*' ? cut - 1 : cut;
+    while (true) {
+      const close = text.indexOf('**', pos);
+      if (close === -1 || close >= lineEnd) break;
+      pos = close + 2;
+      if ((text.slice(lineStart, pos).split('**').length - 1) % 2 === 0) {
+        end = pos;
+        break;
+      }
+    }
+  } else if (line.lastIndexOf('[') > line.lastIndexOf(']')) {
+    const close = text.indexOf(']', cut);
+    if (close !== -1 && close < lineEnd) end = close + 1;
+  }
+  return end === -1 ? cut : end;
+}
 
 const QUICK_ACTIONS = [
   {
@@ -76,6 +123,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
+  const [typingLabel, setTypingLabel] = useState('กำลังค้นหาและวิเคราะห์...');
   const [isLoading, setIsLoading] = useState(false);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [chatModels, setChatModels] = useState<ChatModelOption[]>([]);
@@ -147,10 +195,36 @@ export default function ChatPage() {
     }
   }, [currentSessionId]);
 
+  // Follow new text only while the reader is at the bottom — scrolling up to
+  // re-read part of a long answer shouldn't get yanked back down every tick.
+  const stickToBottomRef = useRef(true);
+  // our own smooth scroll's intermediate positions aren't the reader's choice
+  const ignoreScrollUntilRef = useRef(0);
+  const handleChatScroll = () => {
+    if (performance.now() < ignoreScrollUntilRef.current) return;
+    const c = chatMessagesRef.current;
+    if (c) stickToBottomRef.current = c.scrollHeight - c.scrollTop - c.clientHeight < 160;
+  };
+
   useEffect(() => {
     const c = chatMessagesRef.current;
-    if (c) requestAnimationFrame(() => (c.scrollTop = c.scrollHeight));
-  }, [messages, streamingText]);
+    if (!c || !stickToBottomRef.current) return;
+    if (REVEAL_ALL_AT_ONCE && streamingText !== null) {
+      // The whole answer just appeared: bring its start into view rather than
+      // its end, and stop following so the save right after doesn't jump down.
+      stickToBottomRef.current = false;
+      ignoreScrollUntilRef.current = performance.now() + 1000;
+      const rows = c.querySelectorAll<HTMLElement>('.msg-row');
+      const row = rows[rows.length - 1];
+      if (!row) return;
+      const top = row.getBoundingClientRect().top - c.getBoundingClientRect().top + c.scrollTop - 16;
+      requestAnimationFrame(() => c.scrollTo({ top, behavior: 'smooth' }));
+      return;
+    }
+    // glide while an answer streams in; jump when switching chats/sending
+    const behavior = streamingText !== null ? 'smooth' : 'auto';
+    requestAnimationFrame(() => c.scrollTo({ top: c.scrollHeight, behavior }));
+  }, [messages, streamingText, isTyping]);
 
   useEffect(() => {
     const ta = textareaRef.current;
@@ -172,6 +246,7 @@ export default function ChatPage() {
   const clearChatState = () => {
     setMessages([]);
     setStreamingText(null);
+    stickToBottomRef.current = true;
     setPromptTokens(0);
     setCompletionTokens(0);
   };
@@ -279,44 +354,100 @@ export default function ChatPage() {
   ) => {
     setIsLoading(true);
     setIsTyping(true);
+    setTypingLabel('กำลังค้นหาและวิเคราะห์...');
+    stickToBottomRef.current = true;
+    // The backend opens the stream right away but sends nothing while it
+    // retrieves, then releases text in bursts (it holds lines back until
+    // citations/blocks are complete). Keep the typing dots up until there is
+    // text, and reveal what has arrived at a steady pace instead of in jumps.
+    let full = '';
+    let shown = 0;
+    let streamEnded = false;
+    let nextAt = 0;
+    let lastRevealAt = performance.now();
+    let onDrained: (() => void) | null = null;
+    const ticker = window.setInterval(() => {
+      if (shown < full.length) {
+        if (REVEAL_ALL_AT_ONCE) {
+          setTypingLabel('กำลังเรียบเรียงคำตอบ...');
+          if (!streamEnded) return;
+          shown = full.length;
+          setIsTyping(false);
+          setStreamingText(full);
+          return;
+        }
+        const now = performance.now();
+        if (now < nextAt) return;
+        // next complete line, skipping over blank lines so they don't cost a beat
+        let end = shown;
+        do {
+          const nl = full.indexOf('\n', end);
+          end = nl === -1 ? -1 : nl + 1;
+        } while (end !== -1 && end < full.length && full.slice(shown, end).trim() === '');
+        if (end === -1) {
+          if (streamEnded) end = full.length;
+          else if (now - lastRevealAt > PARTIAL_LINE_WAIT_MS) end = safeRevealCut(full, full.length);
+          else return;
+        }
+        if (end <= shown) return;
+        shown = end;
+        lastRevealAt = now;
+        const queuedLines = full.slice(shown).split('\n').length - 1;
+        nextAt = now + Math.max(LINE_DELAY_MIN_MS, LINE_DELAY_MAX_MS - queuedLines * 25);
+        setIsTyping(false);
+        setStreamingText(full.slice(0, shown));
+      } else if (onDrained) {
+        onDrained();
+        onDrained = null;
+      }
+    }, REVEAL_TICK_MS);
+    const drained = () =>
+      new Promise<void>((resolve) => {
+        if (shown >= full.length) resolve();
+        else onDrained = resolve;
+      });
     try {
       const r = await streamChat(path, body);
       if (!r.ok) {
         const data = await r.json().catch(() => ({}));
         throw new Error(data.detail || 'API Error');
       }
-      setIsTyping(false);
-      setStreamingText('');
-      let full = '';
+      const result: { done?: Extract<StreamEvent, { type: 'done' }> } = {};
       await consumeChatStream(r, (event) => {
         if (event.type === 'session') {
           setCurrentSessionId(event.session_id);
         } else if (event.type === 'chunk') {
           full += event.content;
-          setStreamingText(full);
         } else if (event.type === 'done') {
-          setMessages((prev) => [
-            ...prev,
-            { role: 'assistant', content: full, sources: event.sources, timestamp: new Date().toISOString() },
-          ]);
-          setStreamingText(null);
-          if (event.usage) {
-            setPromptTokens((p) => p + (event.usage?.prompt_tokens || 0));
-            setCompletionTokens((c) => c + (event.usage?.completion_tokens || 0));
-          }
-          refreshSessions();
-          setShowSuggested(true);
+          result.done = event;
         } else if (event.type === 'error') {
           full += `\n\n❌ ${event.content}`;
-          setStreamingText(full);
         }
       });
+      streamEnded = true;
+      await drained();
+      setIsTyping(false);
+      const done = result.done;
+      if (done) {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: full, sources: done.sources, timestamp: new Date().toISOString() },
+        ]);
+        setStreamingText(null);
+        if (done.usage) {
+          setPromptTokens((p) => p + (done.usage?.prompt_tokens || 0));
+          setCompletionTokens((c) => c + (done.usage?.completion_tokens || 0));
+        }
+        refreshSessions();
+        setShowSuggested(true);
+      }
     } catch (e) {
       setIsTyping(false);
       setStreamingText(null);
       const msg = e instanceof Error ? e.message : String(e);
       setMessages((prev) => [...prev, { role: 'assistant', content: `❌ เกิดข้อผิดพลาด: ${msg}` }]);
     } finally {
+      window.clearInterval(ticker);
       setIsLoading(false);
     }
   };
@@ -520,7 +651,7 @@ export default function ChatPage() {
           </div>
         </header>
 
-        <div className="chat-messages" ref={chatMessagesRef}>
+        <div className="chat-messages" ref={chatMessagesRef} onScroll={handleChatScroll}>
           {showWelcome ? (
             <div className="welcome">
               <div className="welcome-icon">🏥</div>
@@ -554,7 +685,14 @@ export default function ChatPage() {
                   onQuickAsk={quickAsk}
                   userInitial={displayName}
                 />
-              ))}
+              )).concat(
+                // Same list + key the finished answer will get, so React keeps
+                // this bubble's DOM when it becomes a saved message instead of
+                // remounting it (which replayed the fade-in over the whole answer).
+                streamingText !== null
+                  ? [<MessageBubble key={messages.length} message={{ role: 'assistant', content: streamingText }} onOpenSource={openSource} streaming />]
+                  : []
+              )}
               {isTyping && (
                 <div className="msg-row assistant msg-enter">
                   <div className="msg-bubble-ai">
@@ -569,14 +707,11 @@ export default function ChatPage() {
                         <div className="typing-dot" />
                         <div className="typing-dot" />
                         <div className="typing-dot" />
-                        <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: 6 }}>กำลังค้นหาและวิเคราะห์...</span>
+                        <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: 6 }}>{typingLabel}</span>
                       </div>
                     </div>
                   </div>
                 </div>
-              )}
-              {streamingText !== null && (
-                <MessageBubble message={{ role: 'assistant', content: streamingText }} onOpenSource={openSource} />
               )}
             </>
           )}

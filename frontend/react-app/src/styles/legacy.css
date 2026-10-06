@@ -1040,6 +1040,17 @@
             animation: fadeSlideIn 0.3s ease-out;
         }
 
+        /* Streamed answer: each newly revealed line/block fades in
+           (duration must match FADE_MS in MarkdownMessage.tsx) */
+        @keyframes mdFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .md-fade-in {
+            animation: mdFadeIn 0.38s ease-out both;
+        }
+
         .msg-row {
             display: flex;
             max-width: 1150px;
