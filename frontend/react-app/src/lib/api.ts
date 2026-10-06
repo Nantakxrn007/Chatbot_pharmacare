@@ -1,6 +1,9 @@
 import type {
+  ChatModelOption,
+  AdminChat,
   AdminOverview,
   AuditEvent,
+  UserProfile,
   Drug,
   Me,
   Patient,
@@ -58,13 +61,52 @@ export async function checkPatientName(name: string): Promise<boolean> {
   return !!data.exists;
 }
 
-export async function createSession(patientName: string): Promise<Session> {
+export async function createSession(patientName: string, modelId?: string): Promise<Session> {
   const r = await fetch('/api/sessions', {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({ patient_name: patientName, title: patientName }),
+    body: JSON.stringify({ patient_name: patientName, title: patientName, model_id: modelId }),
   });
   return r.json();
+}
+
+export async function listChatModels(): Promise<{ default: string; models: ChatModelOption[] }> {
+  const r = await fetch('/api/models', { headers: authHeaders() });
+  if (!r.ok) throw new Error(String(r.status));
+  return r.json();
+}
+
+export async function downloadPatientHistory(patientName: string): Promise<void> {
+  const r = await fetch(`/api/patients/${encodeURIComponent(patientName)}/export`, { headers: authHeaders() });
+  if (!r.ok) throw new Error(String(r.status));
+  const data = await r.json();
+
+  // กัน Excel ตีความเซลล์ที่ขึ้นต้นด้วย = + - @ เป็นสูตร
+  const cell = (v: unknown) => {
+    let t = String(v ?? '');
+    if (/^[=+\-@\t\r]/.test(t)) t = `'${t}`;
+    return `"${t.replace(/"/g, '""')}"`;
+  };
+  const header = ['patient', 'session_id', 'session_title', 'model', 'session_created_at', 'message_time', 'role', 'content'];
+  const rows: string[] = [header.join(',')];
+  for (const s of data.sessions as Array<{
+    session_id: string; title: string; model: string; created_at: string;
+    messages: Array<{ role: string; content: string; timestamp: string }>;
+  }>) {
+    for (const m of s.messages) {
+      rows.push([data.patient_name, s.session_id, s.title, s.model, s.created_at, m.timestamp, m.role, m.content].map(cell).join(','));
+    }
+  }
+
+  const blob = new Blob(['\ufeff' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `chat-history-${patientName}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export async function listSessions(): Promise<Session[]> {
@@ -174,4 +216,39 @@ export async function fetchAuditEvents(params: Record<string, string>): Promise<
   const r = await fetch(`/api/admin/audit?${qs}`, { headers: authHeaders() });
   if (!r.ok) throw new Error(String(r.status));
   return r.json();
+}
+
+export async function fetchAdminChats(): Promise<AdminChat[]> {
+  const r = await fetch('/api/admin/chats?limit=50', { headers: authHeaders() });
+  if (!r.ok) throw new Error(String(r.status));
+  return r.json();
+}
+
+export async function fetchProfile(username?: string): Promise<UserProfile> {
+  const qs = username ? `?username=${encodeURIComponent(username)}` : '';
+  const r = await fetch(`/api/profile${qs}`, { headers: authHeaders() });
+  if (!r.ok) throw new Error(String(r.status));
+  return r.json();
+}
+
+export async function saveProfile(body: { display_name: string; department: string }, username?: string): Promise<UserProfile> {
+  const qs = username ? `?username=${encodeURIComponent(username)}` : '';
+  const r = await fetch(`/api/profile${qs}`, {
+    method: 'PATCH',
+    headers: authHeaders(),
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const data = await r.json().catch(() => ({}));
+    throw new Error(data.detail || 'บันทึกไม่สำเร็จ');
+  }
+  return r.json();
+}
+
+export async function adminRequest(method: 'POST', path: string, body?: unknown): Promise<void> {
+  const r = await fetch(path, { method, headers: authHeaders(), body: body === undefined ? undefined : JSON.stringify(body) });
+  if (!r.ok) {
+    const data = await r.json().catch(() => ({}));
+    throw new Error(data.detail || `เกิดข้อผิดพลาด (${r.status})`);
+  }
 }

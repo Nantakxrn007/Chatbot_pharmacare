@@ -193,6 +193,17 @@
             font-weight: 500;
         }
 
+        .model-section-label {
+            margin: 12px 0 2px;
+            padding: 4px 10px;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: #14795a;
+            background: #e3f6ee;
+            border-radius: 8px;
+            display: inline-block;
+        }
+
         .session-list {
             flex: 1;
             overflow-y: auto;
@@ -313,6 +324,17 @@
         .sidebar-nav-link:hover {
             background: #f6f8f7;
         }
+
+        .user-profile-link {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex: 1;
+            min-width: 0;
+            text-decoration: none;
+            color: inherit;
+        }
+        .user-profile-link:hover .name { color: #14795a; }
 
         .user-section {
             display: flex;
@@ -2300,3 +2322,70 @@
             }
         }
     
+
+/* ═══ New chat modal ═══ */
+.nc-overlay {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(16, 30, 40, 0.45);
+    backdrop-filter: blur(6px);
+    opacity: 0; visibility: hidden;
+    transition: opacity 0.25s ease, visibility 0.25s;
+}
+.nc-overlay.show { opacity: 1; visibility: visible; }
+.nc-card {
+    width: min(560px, 92vw);
+    background: #fff; border-radius: 24px;
+    padding: 36px 36px 30px;
+    box-shadow: 0 30px 80px rgba(16, 30, 40, 0.25);
+    transform: translateY(18px) scale(0.96); opacity: 0;
+    transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.25s ease;
+}
+.nc-overlay.show .nc-card { transform: none; opacity: 1; }
+.nc-title { font-size: 26px; font-weight: 700; color: #1a2e2a; }
+.nc-sub { font-size: 14px; color: #8aaba5; margin: 4px 0 22px; }
+.nc-input {
+    width: 100%; box-sizing: border-box;
+    font-size: 17px; font-family: inherit; color: #1a2e2a;
+    padding: 16px 18px; border: 2px solid #e2ece8; border-radius: 14px; outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+.nc-input:focus { border-color: #1fae86; box-shadow: 0 0 0 4px rgba(31, 174, 134, 0.14); }
+.nc-warn {
+    max-height: 0; opacity: 0; overflow: hidden;
+    font-size: 13px; color: #8a5a00; background: #fffbeb; border-radius: 10px;
+    padding: 0 14px; margin-top: 0;
+    transition: max-height 0.25s ease, opacity 0.25s ease, padding 0.25s ease, margin 0.25s ease;
+}
+.nc-warn.show { max-height: 90px; opacity: 1; padding: 10px 14px; margin-top: 10px; border: 1px solid #fde68a; }
+.nc-models { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 22px; }
+.nc-model {
+    position: relative; text-align: left; cursor: pointer; font-family: inherit;
+    display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+    padding: 22px 52px 20px 20px; border: 2px solid #e2ece8; border-radius: 18px; background: #fff;
+    transition: border-color 0.2s, background 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+.nc-model:hover { border-color: #b9ddd0; transform: translateY(-2px); }
+.nc-model.selected { border-color: #1fae86; background: #f0fbf7; box-shadow: 0 8px 22px rgba(31, 174, 134, 0.16); }
+.nc-model-name { font-size: 17px; font-weight: 700; color: #1a2e2a; }
+.nc-model-tag { font-size: 12.5px; font-weight: 600; color: #4a6660; background: #eef3f1; border-radius: 999px; padding: 3px 11px; }
+.nc-model.selected .nc-model-tag { background: #cdeee2; color: #14795a; }
+.nc-check {
+    position: absolute; top: 14px; right: 14px; width: 24px; height: 24px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: #1fae86; color: #fff; opacity: 0; transform: scale(0.5);
+    transition: opacity 0.2s, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.nc-model.selected .nc-check { opacity: 1; transform: scale(1); }
+.nc-actions { display: flex; gap: 12px; margin-top: 28px; }
+.nc-btn {
+    flex: 1; padding: 15px 20px; border-radius: 14px; border: none;
+    font-size: 16px; font-weight: 600; font-family: inherit; cursor: pointer;
+    transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+}
+.nc-btn:active { transform: scale(0.98); }
+.nc-btn-cancel { flex: 0 0 32%; background: #f1f5f4; color: #4a6660; }
+.nc-btn-cancel:hover { background: #e6ecea; }
+.nc-btn-ok { background: #1fae86; color: #fff; box-shadow: 0 8px 20px rgba(31, 174, 134, 0.3); }
+.nc-btn-ok:hover { background: #199a76; }
+@media (max-width: 520px) { .nc-models { grid-template-columns: 1fr; } .nc-card { padding: 28px 22px 22px; } }

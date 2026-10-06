@@ -1,0 +1,27 @@
+.profile-page { min-height: 100vh; background: #f4f8f6; font-family: 'Inter', 'Noto Sans Thai', sans-serif; color: #1a2e2a; }
+.pf-header { background: #fff; border-bottom: 1px solid #e2ece8; padding: 14px 28px; }
+.pf-wrap { max-width: 560px; margin: 0 auto; padding: 36px 20px 60px; }
+.pf-card { background: #fff; border-radius: 24px; padding: 36px 32px; box-shadow: 0 10px 40px rgba(16, 30, 40, 0.08); text-align: center; }
+.pf-avatar { width: 84px; height: 84px; margin: 0 auto 14px; border-radius: 50%; background: #e3f6ee; color: #14795a; font-size: 34px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.pf-username { color: #8aaba5; font-size: 14px; }
+.pf-role { font-size: 15px; font-weight: 700; margin-top: 4px; }
+.pf-off { margin-top: 10px; display: inline-block; background: #fde8e8; color: #b42318; border-radius: 999px; padding: 4px 12px; font-size: 12.5px; font-weight: 600; }
+.pf-field { display: block; text-align: left; margin-top: 22px; font-size: 13px; font-weight: 600; color: #4a6660; }
+.pf-field input { width: 100%; box-sizing: border-box; margin-top: 8px; border: 1.5px solid #dce6e1; border-radius: 14px; padding: 14px 16px; font-size: 16px; font-family: inherit; outline: none; }
+.pf-field input:focus { border-color: #1fae86; box-shadow: 0 0 0 4px rgba(31, 174, 134, 0.14); }
+.pf-depts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.pf-dept { border: 1.5px solid #dce6e1; background: #fff; border-radius: 999px; padding: 9px 14px; font-family: inherit; font-size: 13.5px; cursor: pointer; color: #1a2e2a; transition: all 0.2s; }
+.pf-dept:hover { border-color: #1fae86; }
+.pf-dept.selected { background: #e3f6ee; border-color: #1fae86; color: #14795a; font-weight: 700; }
+.pf-save { margin-top: 26px; width: 100%; border: none; border-radius: 14px; padding: 15px; background: #1fae86; color: #fff; font-size: 16px; font-weight: 700; font-family: inherit; cursor: pointer; box-shadow: 0 8px 20px rgba(31, 174, 134, 0.28); }
+.pf-save:disabled { opacity: 0.5; cursor: not-allowed; }
+.pf-error { background: #fde8e8; color: #b42318; border-radius: 12px; padding: 10px 14px; margin-top: 14px; font-size: 13.5px; }
+.pf-saved { color: #14795a; font-weight: 600; margin-top: 12px; }
+
+.brand-link { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: #1a2e2a; }
+.brand-mark { width: 38px; height: 38px; border-radius: 12px; background: #e3f6ee; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+.brand-name { font-size: 16px; font-weight: 800; }
+.brand-link.light { color: #fff; }
+.brand-link.light .brand-mark { background: rgba(255, 255, 255, 0.2); }
+.ad-user-link { color: #14795a; text-decoration: none; font-weight: 600; }
+.ad-user-link:hover { text-decoration: underline; }

@@ -9,6 +9,8 @@ import hmac
 import os
 import time
 import base64
+import re
+import threading
 
 from backend.config import USERS_FILE, JWT_SECRET, TOKEN_EXPIRE_HOURS
 
@@ -117,7 +119,8 @@ def verify_token(token: str) -> str | None:
         if payload_data.get("exp", 0) < time.time():
             return None
         
-        return payload_data.get("sub")
+        username = payload_data.get("sub")
+        return username if username and is_user_active(username) else None
     except Exception:
         return None
 
@@ -139,12 +142,26 @@ def _save_users(users: list[dict]):
         json.dump(users, f, ensure_ascii=False, indent=2)
 
 
+_users_lock = threading.Lock()
+USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
+MIN_PASSWORD_LEN = 8
+
+
+def is_user_active(username: str) -> bool:
+    for u in _load_users():
+        if u["username"] == username:
+            return not u.get("disabled", False)
+    return False
+
+
 def verify_credentials(username: str, password: str) -> bool:
     """ตรวจ username + password (และอัปเกรด hash เก่าเป็น PBKDF2 เมื่อผ่าน)"""
     users = _load_users()
     for user in users:
         if user["username"] == username:
             if not verify_password(password, user["password_hash"]):
+                return False
+            if user.get("disabled", False):
                 return False
             if _needs_rehash(user["password_hash"]):
                 user["password_hash"] = hash_password(password)
@@ -157,9 +174,121 @@ def verify_credentials(username: str, password: str) -> bool:
 def list_users() -> list[dict]:
     """ข้อมูลผู้ใช้สำหรับหน้า admin — ไม่รวม password hash"""
     return [
-        {"username": u["username"], "display_name": u.get("display_name", u["username"]), "role": u.get("role", "user")}
+        {
+            "username": u["username"],
+            "display_name": u.get("display_name", u["username"]),
+            "role": u.get("role", "user"),
+            "department": u.get("department", ""),
+            "disabled": bool(u.get("disabled", False)),
+        }
         for u in _load_users()
     ]
+
+
+DEPARTMENTS = (
+    "แผนกผู้ป่วยนอก",
+    "แผนกผู้ป่วยใน",
+    "ห้องจ่ายยา",
+    "แผนกฉุกเฉิน",
+    "แผนกกุมารเวชกรรม",
+)
+
+
+def public_profile(username: str) -> dict | None:
+    for u in _load_users():
+        if u["username"] == username:
+            return {
+                "username": u["username"],
+                "display_name": u.get("display_name", u["username"]),
+                "role": u.get("role", "user"),
+                "department": u.get("department", ""),
+                "disabled": bool(u.get("disabled", False)),
+            }
+    return None
+
+
+def _active_admin_count(users: list[dict]) -> int:
+    return sum(1 for u in users if u.get("role") == "admin" and not u.get("disabled", False))
+
+
+def _check_password_strength(password: str) -> None:
+    if len(password or "") < MIN_PASSWORD_LEN:
+        raise ValueError(f"รหัสผ่านต้องยาวอย่างน้อย {MIN_PASSWORD_LEN} ตัวอักษร")
+
+
+def create_user(username: str, password: str, display_name: str | None, role: str = "user") -> None:
+    if not USERNAME_RE.match(username or ""):
+        raise ValueError("ชื่อผู้ใช้ต้องเป็น a-z, 0-9, _ . - ยาว 3-32 ตัว")
+    if role not in ("user", "admin"):
+        raise ValueError("บทบาทไม่ถูกต้อง")
+    _check_password_strength(password)
+    with _users_lock:
+        users = _load_users()
+        if any(u["username"].lower() == username.lower() for u in users):
+            raise ValueError("ชื่อผู้ใช้นี้มีอยู่แล้ว")
+        users.append({
+            "username": username,
+            "password_hash": hash_password(password),
+            "display_name": (display_name or username).strip() or username,
+            "role": role,
+        })
+        _save_users(users)
+
+
+def _mutate_user(username: str, fn) -> None:
+    with _users_lock:
+        users = _load_users()
+        for u in users:
+            if u["username"] == username:
+                fn(u, users)
+                _save_users(users)
+                return
+        raise ValueError("ไม่พบผู้ใช้นี้")
+
+
+def set_user_password(username: str, new_password: str) -> None:
+    _check_password_strength(new_password)
+    _mutate_user(username, lambda u, _all: u.__setitem__("password_hash", hash_password(new_password)))
+
+
+def set_user_role(username: str, role: str) -> None:
+    if role not in ("user", "admin"):
+        raise ValueError("บทบาทไม่ถูกต้อง")
+
+    def fn(u, users):
+        if u.get("role") == "admin" and role != "admin" and _active_admin_count(users) <= 1 and not u.get("disabled"):
+            raise ValueError("ต้องมี admin ที่ใช้งานได้อย่างน้อย 1 คน")
+        u["role"] = role
+    _mutate_user(username, fn)
+
+
+def set_user_disabled(username: str, disabled: bool) -> None:
+    def fn(u, users):
+        if disabled and u.get("role") == "admin" and not u.get("disabled") and _active_admin_count(users) <= 1:
+            raise ValueError("ต้องมี admin ที่ใช้งานได้อย่างน้อย 1 คน")
+        u["disabled"] = bool(disabled)
+    _mutate_user(username, fn)
+
+
+def update_profile(username: str, display_name: str | None = None, department: str | None = None) -> None:
+    def fn(u, _all):
+        if display_name is not None:
+            name = display_name.strip()
+            if not name:
+                raise ValueError("ชื่อที่แสดงต้องไม่ว่าง")
+            u["display_name"] = name
+        if department is not None:
+            if department not in DEPARTMENTS:
+                raise ValueError("ไม่มีแผนกนี้")
+            u["department"] = department
+    _mutate_user(username, fn)
+
+
+def set_user_display_name(username: str, display_name: str) -> None:
+    name = (display_name or "").strip()
+    if not name:
+        raise ValueError("ชื่อที่แสดงต้องไม่ว่าง")
+    _mutate_user(username, lambda u, _all: u.__setitem__("display_name", name))
 
 
 def get_user_role(username: str) -> str:

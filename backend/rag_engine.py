@@ -1548,6 +1548,26 @@ def _init():
     print(f"[RAG] Chat model: {CHAT_MODEL} (gen_config={chat_generation_config()})")
 
 
+_chat_models_by_name: dict = {}
+
+
+def get_chat_model(model_name: str | None = None):
+    """โมเดลตอบแชท (system prompt + generation config เดียวกันทุกตัว) — แคชต่อชื่อโมเดล"""
+    _init()
+    print(f"[RAG] answering with model: {model_name or CHAT_MODEL}")
+    if not model_name or model_name == CHAT_MODEL:
+        return _chat_model
+    m = _chat_models_by_name.get(model_name)
+    if m is None:
+        m = genai.GenerativeModel(
+            model_name         = model_name,
+            system_instruction = SYSTEM_PROMPT,
+            generation_config  = chat_generation_config(),
+        )
+        _chat_models_by_name[model_name] = m
+    return m
+
+
 def get_qdrant_client():
     """ส่ง Qdrant client ตัวเดียวกันให้โมดูลอื่นใช้ร่วม (singleton)"""
     _init()
@@ -3510,6 +3530,7 @@ def generate_answer(
     question : str,
     history  : list[dict] = None,
     top_k    : int = TOP_K,
+    model_name: str | None = None,
 ) -> dict:
     """
     RAG pipeline หลัก:
@@ -3565,7 +3586,7 @@ def generate_answer(
     dose_pages = _dose_pages_with_catalog(chunks, cat_drugs)
 
     try:
-        chat     = _chat_model.start_chat(history=gemini_history)
+        chat     = get_chat_model(model_name).start_chat(history=gemini_history)
         response = _call_with_retry(chat.send_message, user_message)
         answer   = response.text
     except Exception as e:
@@ -3598,6 +3619,7 @@ async def generate_answer_stream(
     question : str,
     history  : list[dict] = None,
     top_k    : int = TOP_K,
+    model_name: str | None = None,
 ):
     """
     RAG pipeline แบบ Streaming:
@@ -3669,7 +3691,7 @@ async def generate_answer_stream(
     guard = _citation_guard(chunks)   # หน้าที่ Context ให้มาจริง -> ใช้บังคับเลขหน้าทุกรอบ flush
 
     try:
-        chat     = _chat_model.start_chat(history=gemini_history)
+        chat     = get_chat_model(model_name).start_chat(history=gemini_history)
         response = _call_with_retry(chat.send_message, user_message, stream=True)
 
         full_answer = ""

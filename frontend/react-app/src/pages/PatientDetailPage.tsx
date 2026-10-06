@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import BrandLink from '../components/BrandLink';
 import * as XLSX from 'xlsx';
 import { generatePatientSummary, getPatientSessions, getPatientSummary } from '../lib/api';
 import type { PatientSession, PatientSummaryData, RiskLevel } from '../types';
@@ -273,12 +274,7 @@ export default function PatientDetailPage() {
       {!exporting && (
         <nav className="pt-top-nav">
           <div className="pt-nav-left">
-            <Link to="/" className="pt-back-btn">
-              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 18l-6-6 6-6" />
-              </svg>
-              กลับแชท
-            </Link>
+            <BrandLink />
             <div>
               <div className="pt-nav-title">
                 <svg width="17" height="17" fill="none" stroke="#1fae86" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">

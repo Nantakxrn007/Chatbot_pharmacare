@@ -13,6 +13,7 @@ import { consumeChatStream } from '../hooks/useChatStream';
 import {
   clearAuth,
   createSession,
+  listChatModels,
   deleteSession,
   fetchMe,
   getSession,
@@ -22,7 +23,7 @@ import {
   searchSessions,
   streamChat,
 } from '../lib/api';
-import type { Message, Session } from '../types';
+import type { ChatModelOption, Message, Session } from '../types';
 
 const QUICK_ACTIONS = [
   {
@@ -65,6 +66,7 @@ export default function ChatPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [displayName, setDisplayName] = useState('');
+  const [department, setDepartment] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -76,6 +78,8 @@ export default function ChatPage() {
   const [isTyping, setIsTyping] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
+  const [chatModels, setChatModels] = useState<ChatModelOption[]>([]);
+  const [defaultModelId, setDefaultModelId] = useState('3.1');
   const [showSuggested, setShowSuggested] = useState(false);
 
   const [input, setInput] = useState('');
@@ -110,12 +114,19 @@ export default function ChatPage() {
     fetchMe()
       .then((me) => {
         setDisplayName(me.display_name || me.username);
+        setDepartment(me.department || '');
         setIsAdmin(me.role === 'admin');
       })
       .catch(() => {
         clearAuth();
         navigate('/login', { replace: true });
       });
+    listChatModels()
+      .then((r) => {
+        setChatModels(r.models);
+        setDefaultModelId(r.default);
+      })
+      .catch(() => {});
     refreshSessions();
     // currentSessionId only lives in this component's state, so leaving "/"
     // (e.g. to view a patient's history) and coming back remounts ChatPage
@@ -165,10 +176,10 @@ export default function ChatPage() {
     setCompletionTokens(0);
   };
 
-  const handleNewChatConfirm = async (name: string) => {
+  const handleNewChatConfirm = async (name: string, modelId: string) => {
     setNewChatOpen(false);
     try {
-      const s = await createSession(name);
+      const s = await createSession(name, modelId);
       setCurrentSessionId(s.id);
       setCurrentPatientName(s.patient_name || name);
       setUpdatedAtLabel('เพิ่งสร้าง');
@@ -458,7 +469,9 @@ export default function ChatPage() {
         sessions={sessions}
         currentSessionId={currentSessionId}
         displayName={displayName || 'A'}
+        department={department}
         isAdmin={isAdmin}
+        models={chatModels}
         collapsed={sidebarCollapsed}
         mobileOpen={sidebarMobileOpen}
         onNewChat={() => setNewChatOpen(true)}
@@ -668,7 +681,13 @@ export default function ChatPage() {
       {toolsPanelMobileOpen && <div className="tools-overlay show" onClick={() => setToolsPanelMobileOpen(false)} />}
       <div className={`toast${toast ? ' show' : ''}`}>{toast}</div>
 
-      <NewChatModal open={newChatOpen} onClose={() => setNewChatOpen(false)} onConfirm={handleNewChatConfirm} />
+      <NewChatModal
+        open={newChatOpen}
+        onClose={() => setNewChatOpen(false)}
+        onConfirm={handleNewChatConfirm}
+        models={chatModels}
+        defaultModelId={defaultModelId}
+      />
       <ConfirmModal
         open={deleteTargetId !== null}
         title="ลบแชทนี้?"

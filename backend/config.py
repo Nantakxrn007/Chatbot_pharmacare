@@ -67,6 +67,15 @@ DOSE_PDF = DATA_DIR / DOSE_PDF_NAME
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "models/gemini-embedding-001")
 CHAT_MODEL = os.getenv("CHAT_MODEL", "models/gemini-3.1-flash-lite")
+
+# โมเดลแชทที่เลือกได้ตอนสร้างแชทใหม่ (ใช้ทดลองเทียบกัน) — เปลี่ยนเฉพาะโมเดลตอบแชท ไม่กระทบ RAG/embedding
+CHAT_MODEL_OPTIONS = [
+    {"id": "3.1", "label": "Gemini 3.1 Flash-Lite (ตัวเก่า)", "short": "Gemini 3.1", "model": CHAT_MODEL},
+    {"id": "3.5", "label": "Gemini 3.5 Flash-Lite (ตัวใหม่)", "short": "Gemini 3.5",
+     "model": os.getenv("CHAT_MODEL_NEW", "models/gemini-3.5-flash-lite")},
+]
+DEFAULT_CHAT_MODEL_ID = "3.1"
+CHAT_MODEL_BY_ID = {o["id"]: o["model"] for o in CHAT_MODEL_OPTIONS}
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "pharmacy_docs")
 MEMORY_COLLECTION_NAME = os.getenv("MEMORY_COLLECTION_NAME", "chat_memory")
 

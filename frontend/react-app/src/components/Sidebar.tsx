@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import type { Session } from '../types';
+import type { ChatModelOption, Session } from '../types';
 
 function formatDate(ts?: string): string {
   if (!ts) return '';
@@ -46,11 +46,26 @@ function groupSessionsByDay(sessions: Session[]): { label: string; items: Sessio
   return groups;
 }
 
+const DEFAULT_MODEL_ID = '3.1';
+
+// แยกแชทเป็นหมวดตามโมเดล (ตัวใหม่อยู่บน) โดยแชทเก่าที่ไม่มีค่า = 3.1
+function groupByModel(sessions: Session[], models: ChatModelOption[]) {
+  const known = models.length ? models : [{ id: DEFAULT_MODEL_ID, label: '', short: 'Gemini 3.1' }];
+  const sections = [...known].reverse().map((m) => ({ id: m.id, label: m.short, items: [] as Session[] }));
+  for (const s of sessions) {
+    const id = s.model_id || DEFAULT_MODEL_ID;
+    (sections.find((x) => x.id === id) || sections[sections.length - 1]).items.push(s);
+  }
+  return sections.filter((x) => x.items.length > 0);
+}
+
 interface Props {
   sessions: Session[];
   currentSessionId: string | null;
   displayName: string;
+  department?: string;
   isAdmin?: boolean;
+  models?: ChatModelOption[];
   collapsed: boolean;
   mobileOpen: boolean;
   onNewChat: () => void;
@@ -66,7 +81,9 @@ export default function Sidebar({
   sessions,
   currentSessionId,
   displayName,
+  department,
   isAdmin,
+  models = [],
   collapsed,
   mobileOpen,
   onNewChat,
@@ -114,7 +131,10 @@ export default function Sidebar({
             <p style={{ marginTop: '0.3rem' }}>กดปุ่ม "แชทใหม่" เพื่อเริ่มต้น</p>
           </div>
         ) : (
-          groupSessionsByDay(sessions).map((group, groupIndex) => (
+          groupByModel(sessions, models).map((section) => (
+            <div key={section.id} className="model-section">
+              <div className="model-section-label">{section.label}</div>
+              {groupSessionsByDay(section.items).map((group, groupIndex) => (
             <div key={`${group.label}-${groupIndex}`}>
               <div className="session-group-label">{group.label}</div>
               {group.items.map((s) => {
@@ -164,6 +184,8 @@ export default function Sidebar({
                 );
               })}
             </div>
+              ))}
+            </div>
           ))
         )}
       </div>
@@ -193,11 +215,13 @@ export default function Sidebar({
           </Link>
         )}
         <div className="user-section">
-          <div className="user-avatar">{displayName.charAt(0).toUpperCase()}</div>
-          <div className="user-info">
-            <div className="name">{displayName}</div>
-            <div className="role">เภสัชกร</div>
-          </div>
+          <Link to="/profile" className="user-profile-link">
+            <div className="user-avatar">{displayName.charAt(0).toUpperCase()}</div>
+            <div className="user-info">
+              <div className="name">{displayName}</div>
+              <div className="role">{department || (isAdmin ? 'ผู้ดูแลระบบ' : 'เภสัชกร')}</div>
+            </div>
+          </Link>
           <button className="logout-btn" onClick={onLogout} title="ออกจากระบบ">
             <svg width="16" height="16" fill="none" stroke="#8aaba5" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
               <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />

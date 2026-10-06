@@ -186,6 +186,8 @@ class SessionManager:
                 conn.execute("UPDATE sessions SET username = 'admin' WHERE username IS NULL")
             if "patient_key" not in cols:
                 conn.execute("ALTER TABLE sessions ADD COLUMN patient_key TEXT")
+            if "model_id" not in cols:
+                conn.execute("ALTER TABLE sessions ADD COLUMN model_id TEXT")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_patient_key ON sessions(username, patient_key)")
             conn.commit()
 
@@ -216,7 +218,7 @@ class SessionManager:
 
     # ─── Create ──────────────────────────────────────────────────────────────
 
-    def create_session(self, username: str, title: str = None, patient_name: str = None) -> dict:
+    def create_session(self, username: str, title: str = None, patient_name: str = None, model_id: str = None) -> dict:
         session_id = str(uuid.uuid4())[:8]
         now = datetime.now(timezone.utc).isoformat()
         p_name = patient_name or title or NEW_CHAT_TITLE
@@ -224,8 +226,8 @@ class SessionManager:
         
         with self._get_conn() as conn:
             conn.execute(
-                "INSERT INTO sessions (id, title, patient_name, patient_key, username, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (session_id, encrypt(title), encrypt(p_name), blind_index(p_name), username, now, now)
+                "INSERT INTO sessions (id, title, patient_name, patient_key, username, model_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (session_id, encrypt(title), encrypt(p_name), blind_index(p_name), username, model_id, now, now)
             )
             conn.commit()
             
@@ -234,6 +236,7 @@ class SessionManager:
             "title": title,
             "patient_name": p_name,
             "username": username,
+            "model_id": model_id,
             "messages": [],
             "created_at": now,
             "updated_at": now,
@@ -262,6 +265,11 @@ class SessionManager:
                 })
             session["messages"] = messages
             return session
+
+    def get_session_model_id(self, session_id: str) -> str | None:
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT model_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
+            return row["model_id"] if row else None
 
     def list_sessions(self, username: str) -> list[dict]:
         with self._get_conn() as conn:
@@ -556,6 +564,33 @@ class SessionManager:
             conn.commit()
             return True
 
+    def list_recent_chats(self, limit: int = 50) -> list[dict]:
+        """แชทล่าสุดของทุกผู้ใช้ (ชื่อผู้ป่วยด้วย เพราะ admin ต้องดูว่าแชทไหนของใคร)"""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT s.id, s.patient_name, s.username, s.model_id, s.updated_at,
+                       COUNT(m.id) AS message_count
+                FROM sessions s
+                LEFT JOIN messages m ON m.session_id = s.id
+                GROUP BY s.id
+                ORDER BY s.updated_at DESC
+                LIMIT ?
+                """,
+                (max(1, min(int(limit), 200)),),
+            ).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "username": r["username"],
+                "patient_name": decrypt(r["patient_name"]),
+                "model_id": r["model_id"] or "3.1",
+                "updated_at": r["updated_at"],
+                "message_count": r["message_count"],
+            }
+            for r in rows
+        ]
+
     # ─── Admin stats (counts only, no PII) ───────────────────────────────────
 
     def get_security_stats(self) -> dict:
@@ -566,12 +601,20 @@ class SessionManager:
             )]
             def one(sql):
                 return conn.execute(sql).fetchone()[0]
+
+            def _sum_by_model(c):
+                out: dict[str, int] = {}
+                for mid, n in c.execute("SELECT model_id, COUNT(*) FROM sessions GROUP BY model_id"):
+                    key = mid or "3.1"
+                    out[key] = out.get(key, 0) + n
+                return out
             return {
                 "users": users,
                 "sessions_total": one("SELECT COUNT(*) FROM sessions"),
                 "messages_total": one("SELECT COUNT(*) FROM messages"),
                 "messages_encrypted": one("SELECT COUNT(*) FROM messages WHERE content LIKE 'enc1:%'"),
                 "messages_plaintext": one("SELECT COUNT(*) FROM messages WHERE content IS NOT NULL AND content != '' AND content NOT LIKE 'enc1:%'"),
+                "sessions_by_model": _sum_by_model(conn),
                 "sessions_plaintext": one("SELECT COUNT(*) FROM sessions WHERE patient_name IS NOT NULL AND patient_name NOT LIKE 'enc1:%'"),
             }
 

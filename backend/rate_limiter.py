@@ -115,9 +115,20 @@ class LoginGuard:
         now = time.monotonic()
         with self._lock:
             return [
-                {"key": k.split(":", 1)[0], "target": k.split(":", 1)[1], "retry_after": int(v - now) + 1}
+                {"id": k, "key": k.split(":", 1)[0], "target": k.split(":", 1)[1], "retry_after": int(v - now) + 1}
                 for k, v in self._locked_until.items() if v > now
             ]
+
+    def unlock(self, full_key: str | None = None) -> int:
+        """ปลดล็อกรายการเดียว (full_key เช่น 'pair:1.2.3.4:admin') หรือทั้งหมดถ้าไม่ระบุ"""
+        with self._lock:
+            keys = list(self._locked_until) if full_key is None else [full_key]
+            n = 0
+            for k in keys:
+                if self._locked_until.pop(k, None) is not None:
+                    n += 1
+                self._fails.pop(k, None)
+            return n
 
     def record_success(self, ip: str, username: str) -> None:
         pair_key, _ = self._keys(ip, username)

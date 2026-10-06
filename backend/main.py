@@ -58,7 +58,7 @@ from backend.rag_engine import generate_answer, evaluate_answer, evaluate_answer
 from backend.session_manager import SessionManager
 from backend.semantic_memory import semantic_memory
 from backend.patient_summary import generate_patient_summary
-from backend.auth import verify_credentials, create_token, verify_token, get_user_display_name, get_user_role, list_users
+from backend.auth import verify_credentials, create_token, verify_token, get_user_display_name, get_user_role, list_users, create_user, set_user_password, set_user_role, set_user_disabled, public_profile, update_profile, DEPARTMENTS
 from backend.audit_log import audit_log
 from backend.crypto_utils import short_ref
 from backend.rate_limiter import api_limiter, login_guard, get_client_ip
@@ -68,6 +68,7 @@ from backend.config import (
     MEMORY_MIN_SIMILARITY, MEMORY_RECALL_TOP_K, MEMORY_MIN_SESSION_MESSAGES,
     JWT_SECRET_IS_DEFAULT, COOKIE_SECURE, TOKEN_EXPIRE_HOURS, PUBLIC_DATA_EXTENSIONS,
     API_RATE_LIMIT, CHAT_RATE_LIMIT,
+    CHAT_MODEL_OPTIONS, CHAT_MODEL_BY_ID, DEFAULT_CHAT_MODEL_ID,
 )
 from datetime import datetime, timezone
 
@@ -284,6 +285,7 @@ class ChatResponse(BaseModel):
 class CreateSessionRequest(BaseModel):
     title: str | None = None
     patient_name: str | None = None
+    model_id: str | None = None
 
 class RenameSessionRequest(BaseModel):
     title: str
@@ -323,6 +325,11 @@ async def testcase_page():
 
 @app.get("/admin")
 async def admin_page():
+    return _serve_react_app()
+
+@app.get("/profile")
+@app.get("/profile/{username}")
+async def profile_page(username: str | None = None):
     return _serve_react_app()
 
 @app.get("/patients")
@@ -375,14 +382,35 @@ async def login(req: LoginRequest, request: Request):
     )
     return response
 
+class ProfileUpdate(BaseModel):
+    display_name: str | None = None
+    department: str | None = None
+
+
 @app.get("/api/me")
 async def get_me(username: str = Depends(get_current_user)):
-    display_name = get_user_display_name(username)
-    return {
-        "username": username,
-        "display_name": display_name,
-        "role": get_user_role(username),
-    }
+    return public_profile(username)
+
+
+@app.get("/api/profile")
+async def get_profile(username: str | None = None, me: str = Depends(get_current_user)):
+    target = username or me
+    if target != me and get_user_role(me) != "admin":
+        raise HTTPException(status_code=403, detail="ดูโปรไฟล์คนอื่นได้เฉพาะผู้ดูแลระบบ")
+    profile = public_profile(target)
+    if not profile:
+        raise HTTPException(status_code=404, detail="ไม่พบผู้ใช้นี้")
+    return {**profile, "departments": list(DEPARTMENTS), "is_self": target == me}
+
+
+@app.patch("/api/profile")
+async def patch_profile(req: ProfileUpdate, request: Request, username: str | None = None, me: str = Depends(get_current_user)):
+    target = username or me
+    if target != me and get_user_role(me) != "admin":
+        raise HTTPException(status_code=403, detail="แก้โปรไฟล์คนอื่นได้เฉพาะผู้ดูแลระบบ")
+    await asyncio.to_thread(_run_user_op, update_profile, target, req.display_name, req.department)
+    audit_log.log("profile_update", me, get_client_ip(request), f"user:{target}", "ok", "")
+    return public_profile(target)
 
 @app.post("/api/logout")
 async def logout():
@@ -438,6 +466,12 @@ def _remember_async(session_id: str, role: str, content: str) -> None:
     ).start()
 
 
+def _model_name_for(session_id: str) -> str:
+    """โมเดลของแชทนี้ (แชทเก่าที่ไม่มีค่า = ตัวเก่า 3.1)"""
+    model_id = sessions.get_session_model_id(session_id) or DEFAULT_CHAT_MODEL_ID
+    return CHAT_MODEL_BY_ID.get(model_id) or CHAT_MODEL_BY_ID[DEFAULT_CHAT_MODEL_ID]
+
+
 def _process_message_and_get_history(session_id: str, message: str, username: str) -> list[dict]:
     _remember_async(session_id, "user", message)
 
@@ -468,6 +502,7 @@ async def chat(req: ChatRequest, username: str = Depends(get_current_user)):
             question=req.message,
             history=combined_history,
             top_k=5,
+            model_name=_model_name_for(session_id),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"RAG Error: {str(e)}")
@@ -508,7 +543,7 @@ async def chat_stream(req: ChatRequest, username: str = Depends(get_current_user
         completion_tokens = 0
 
         try:
-            async for chunk in generate_answer_stream(req.message, combined_history, top_k=5):
+            async for chunk in generate_answer_stream(req.message, combined_history, top_k=5, model_name=_model_name_for(session_id)):
                 # We yield exactly the data generated
                 yield f"data: {chunk}\n"
 
@@ -554,7 +589,7 @@ async def edit_last_message(req: EditMessageRequest, username: str = Depends(get
         completion_tokens = 0
 
         try:
-            async for chunk in generate_answer_stream(req.message, combined_history, top_k=5):
+            async for chunk in generate_answer_stream(req.message, combined_history, top_k=5, model_name=_model_name_for(req.session_id)):
                 yield f"data: {chunk}\n"
                 chunk_data = json.loads(chunk)
                 if chunk_data.get("type") == "done":
@@ -610,7 +645,7 @@ async def regenerate(req: RegenerateRequest, username: str = Depends(get_current
         completion_tokens = 0
 
         try:
-            async for chunk in generate_answer_stream(last_user_msg, combined_history, top_k=5):
+            async for chunk in generate_answer_stream(last_user_msg, combined_history, top_k=5, model_name=_model_name_for(req.session_id)):
                 yield f"data: {chunk}\n"
                 chunk_data = json.loads(chunk)
                 if chunk_data.get("type") == "done":
@@ -631,6 +666,13 @@ async def regenerate(req: RegenerateRequest, username: str = Depends(get_current
 
 # ─── Session API ─────────────────────────────────────────────────────────────
 
+@app.get("/api/models")
+async def list_chat_models(username: str = Depends(get_current_user)):
+    return {
+        "default": DEFAULT_CHAT_MODEL_ID,
+        "models": [{k: o[k] for k in ("id", "label", "short")} for o in CHAT_MODEL_OPTIONS],
+    }
+
 @app.get("/api/sessions")
 async def list_all_sessions(username: str = Depends(get_current_user)):
     return sessions.list_sessions(username)
@@ -638,8 +680,11 @@ async def list_all_sessions(username: str = Depends(get_current_user)):
 @app.post("/api/sessions")
 async def create_new_session(req: CreateSessionRequest = None, username: str = Depends(get_current_user)):
     patient_name = req.patient_name if req else None
-    title = req.title or patient_name
-    session = sessions.create_session(username, title=title, patient_name=patient_name)
+    title = (req.title if req else None) or patient_name
+    model_id = (req.model_id if req else None) or DEFAULT_CHAT_MODEL_ID
+    if model_id not in CHAT_MODEL_BY_ID:
+        raise HTTPException(status_code=400, detail="ไม่รู้จักโมเดลที่เลือก")
+    session = sessions.create_session(username, title=title, patient_name=patient_name, model_id=model_id)
     return session
 
 @app.get("/api/sessions/search")
@@ -812,6 +857,34 @@ async def get_patient_sessions(patient_name: str, username: str = Depends(get_cu
         raise HTTPException(status_code=404, detail="ไม่พบข้อมูลผู้ป่วยนี้")
     return patient_sessions
 
+@app.get("/api/patients/{patient_name}/export")
+async def export_patient_history(patient_name: str, username: str = Depends(get_current_user)):
+    """โหลดประวัติแชททั้งหมดของผู้ป่วยคนนี้ (ทุก session + ข้อความ) เป็น JSON — ใช้ทดสอบ/เทียบโมเดล"""
+    patient_sessions = sessions.get_sessions_by_patient(patient_name, username)
+    if not patient_sessions:
+        raise HTTPException(status_code=404, detail="ไม่พบข้อมูลผู้ป่วยนี้")
+    short = {o["id"]: o["short"] for o in CHAT_MODEL_OPTIONS}
+    out_sessions = []
+    for ps in patient_sessions:
+        full = sessions.get_session(ps["id"], username)
+        model_id = full.get("model_id") or DEFAULT_CHAT_MODEL_ID
+        out_sessions.append({
+            "session_id": full["id"],
+            "title": full.get("title"),
+            "model": short.get(model_id, model_id),
+            "created_at": full.get("created_at"),
+            "messages": [
+                {"role": m["role"], "content": m["content"], "timestamp": m["timestamp"]}
+                for m in full["messages"]
+            ],
+        })
+    return {
+        "patient_name": patient_name,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "sessions": out_sessions,
+    }
+
+
 @app.get("/api/patients/{patient_name}/summary")
 async def get_patient_summary(patient_name: str, username: str = Depends(get_current_user)):
     """ดึง cached AI summary ของผู้ป่วย (ไม่เรียก LLM)"""
@@ -866,6 +939,12 @@ async def get_audit_log(limit: int = 100, username: str | None = None, action: s
     return audit_log.query(limit=limit, username=username, action=action, since=since, status=status)
 
 
+@app.get("/api/admin/chats")
+async def admin_recent_chats(limit: int = 50, admin: str = Depends(require_admin)):
+    """แชทล่าสุดของทุกผู้ใช้ เรียงจากที่มีการใช้งานล่าสุด"""
+    return await asyncio.to_thread(sessions.list_recent_chats, limit)
+
+
 @app.get("/api/admin/overview")
 async def admin_overview(hours: int = 24, admin: str = Depends(require_admin)):
     """ภาพรวมความปลอดภัย — เป็นตัวเลขล้วน ไม่มีชื่อผู้ป่วยหรือเนื้อหาแชท"""
@@ -893,6 +972,100 @@ async def admin_overview(hours: int = 24, admin: str = Depends(require_admin)):
 @app.get("/api/admin/audit/verify")
 async def verify_audit_log(admin: str = Depends(require_admin)):
     return audit_log.verify_chain()
+
+
+# ─── Admin: User management & controls ───────────────────────────────────────
+
+class NewUserRequest(BaseModel):
+    username: str
+    password: str
+    display_name: str | None = None
+    role: str = "user"
+
+class PasswordRequest(BaseModel):
+    password: str
+
+class RoleRequest(BaseModel):
+    role: str
+
+class DisabledRequest(BaseModel):
+    disabled: bool
+
+class UnlockRequest(BaseModel):
+    id: str | None = None
+
+class ChangeOwnPasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+
+def _admin_action(request: Request, admin: str, action: str, target: str = "", detail: str = ""):
+    audit_log.log(f"admin.{action}", admin, get_client_ip(request), f"user:{target}" if target else "", "ok", detail)
+
+
+def _run_user_op(fn, *args):
+    try:
+        fn(*args)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/admin/users")
+async def admin_create_user(req: NewUserRequest, request: Request, admin: str = Depends(require_admin)):
+    await asyncio.to_thread(_run_user_op, create_user, req.username, req.password, req.display_name, req.role)
+    _admin_action(request, admin, "user_create", req.username, f"role={req.role}")
+    return {"status": "ok"}
+
+
+@app.post("/api/admin/users/{target}/password")
+async def admin_reset_password(target: str, req: PasswordRequest, request: Request, admin: str = Depends(require_admin)):
+    await asyncio.to_thread(_run_user_op, set_user_password, target, req.password)
+    for e in login_guard.locked_entries():
+        if e["id"].endswith(f":{target.lower()}"):
+            login_guard.unlock(e["id"])
+    _admin_action(request, admin, "password_reset", target)
+    return {"status": "ok"}
+
+
+@app.post("/api/admin/users/{target}/role")
+async def admin_set_role(target: str, req: RoleRequest, request: Request, admin: str = Depends(require_admin)):
+    if target == admin:
+        raise HTTPException(status_code=400, detail="เปลี่ยนบทบาทของตัวเองไม่ได้")
+    await asyncio.to_thread(_run_user_op, set_user_role, target, req.role)
+    _admin_action(request, admin, "role_change", target, f"role={req.role}")
+    return {"status": "ok"}
+
+
+@app.post("/api/admin/users/{target}/disabled")
+async def admin_set_disabled(target: str, req: DisabledRequest, request: Request, admin: str = Depends(require_admin)):
+    if target == admin:
+        raise HTTPException(status_code=400, detail="ปิดบัญชีของตัวเองไม่ได้")
+    await asyncio.to_thread(_run_user_op, set_user_disabled, target, req.disabled)
+    _admin_action(request, admin, "user_disable" if req.disabled else "user_enable", target)
+    return {"status": "ok"}
+
+
+@app.post("/api/admin/unlock")
+async def admin_unlock(req: UnlockRequest, request: Request, admin: str = Depends(require_admin)):
+    n = login_guard.unlock(req.id)
+    _admin_action(request, admin, "unlock", "", f"count={n}")
+    return {"status": "ok", "unlocked": n}
+
+
+@app.post("/api/me/password")
+async def change_own_password(req: ChangeOwnPasswordRequest, request: Request, username: str = Depends(get_current_user)):
+    ip = get_client_ip(request)
+    wait = login_guard.check(ip, username)
+    if wait:
+        return _rate_limited(wait, "ใส่รหัสผ่านเดิมผิดหลายครั้ง")
+    if not await asyncio.to_thread(verify_credentials, username, req.old_password):
+        login_guard.record_failure(ip, username)
+        audit_log.log("password_change", username, ip, "", "failed", "")
+        raise HTTPException(status_code=400, detail="รหัสผ่านเดิมไม่ถูกต้อง")
+    await asyncio.to_thread(_run_user_op, set_user_password, username, req.new_password)
+    login_guard.record_success(ip, username)
+    audit_log.log("password_change", username, ip, "", "ok", "")
+    return {"status": "ok"}
 
 
 # ─── Health ──────────────────────────────────────────────────────────────────

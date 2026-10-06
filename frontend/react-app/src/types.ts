@@ -18,8 +18,15 @@ export interface Session {
   id: string;
   title?: string;
   patient_name?: string;
+  model_id?: string | null;
   updated_at?: string;
   messages?: Message[];
+}
+
+export interface ChatModelOption {
+  id: string;
+  label: string;
+  short: string;
 }
 
 export interface Usage {
@@ -37,6 +44,22 @@ export interface Me {
   username: string;
   display_name?: string;
   role?: string;
+  department?: string;
+}
+
+export interface UserProfile extends Me {
+  disabled?: boolean;
+  departments: string[];
+  is_self: boolean;
+}
+
+export interface AdminChat {
+  id: string;
+  username: string;
+  patient_name: string;
+  model_id: string;
+  updated_at: string;
+  message_count: number;
 }
 
 export interface AuditEvent {
@@ -63,15 +86,16 @@ export interface AdminOverview {
     by_user: { username: string; n: number; last_ts: string }[];
   };
   chain: { ok: boolean; rows: number; first_bad_id: number | null };
-  users: { username: string; display_name: string; role: string; sessions?: number; messages?: number; last_activity?: string }[];
+  users: { username: string; display_name: string; role: string; department: string; disabled: boolean; sessions?: number; messages?: number; last_activity?: string }[];
   data: {
     sessions_total: number;
     messages_total: number;
     messages_encrypted: number;
     messages_plaintext: number;
     sessions_plaintext: number;
+    sessions_by_model: Record<string, number>;
   };
-  locked: { key: string; target: string; retry_after: number }[];
+  locked: { id: string; key: string; target: string; retry_after: number }[];
   config: {
     jwt_secret_default: boolean;
     cookie_secure: boolean;

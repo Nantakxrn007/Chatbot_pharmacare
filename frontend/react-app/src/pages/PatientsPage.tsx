@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { listPatients } from '../lib/api';
+import BrandLink from '../components/BrandLink';
+import { downloadPatientHistory, listPatients } from '../lib/api';
 import type { Patient, RiskLevel } from '../types';
 import '../styles/patients.css';
 
@@ -51,12 +52,7 @@ export default function PatientsPage() {
   return (
     <div className="patients-page">
       <nav className="pp-top-nav">
-        <Link to="/" className="pp-back-btn">
-          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 18l-6-6 6-6" />
-          </svg>
-          กลับแชท
-        </Link>
+        <BrandLink />
         <div>
           <div className="pp-nav-title">
             <svg width="17" height="17" fill="none" stroke="#1fae86" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
@@ -148,6 +144,18 @@ export default function PatientsPage() {
                   <div className="pp-card-footer">
                     <span className="pp-card-date">ล่าสุด: {fmtDate(p.last_visit)}</span>
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="pp-load-btn"
+                        title="โหลดประวัติแชทของผู้ป่วยคนนี้ (ไฟล์ CSV)"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          downloadPatientHistory(p.patient_name).catch(() => alert('โหลดประวัติไม่สำเร็จ'));
+                        }}
+                      >
+                        ⬇ โหลดประวัติ
+                      </button>
                       {p.risk_level && (
                         <span className={`pp-card-risk ${riskClasses[p.risk_level] || ''}`}>
                           {riskLabels[p.risk_level] || p.risk_level}
